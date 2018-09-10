@@ -407,12 +407,34 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     
     
     // On 10.7+, save the main context, ready for parent to be saved in a moment
+    /* Jerry says: With Core Data thread checking on, I was getting the
+     familiar "All that is left to us is honor" exceptions here when my
+     document was saved, on 20180909.  I think this may have started when I
+     tried it with asynchronous saving ON for a time.  (That is, I changed my
+     subclass' override of -canAsynchronouslyWriteToURL:::: to return YES.)
+     Wrapping the call to -save: in -performBlockAndWait:, below, fixed it. */
+    BOOL __block ok = YES;
+    NSError* __block blockError = nil;
     NSManagedObjectContext *context = self.managedObjectContext;
-    if ([context respondsToSelector:@selector(parentContext)])
+    if ([context respondsToSelector:@selector(performBlockAndWait:)])
     {
-        if (![context save:outError]) return nil;
+        [context performBlockAndWait:^{
+            ok = [context save:&blockError];
+#if !__has_feature(objc_arc)
+            [blockError retain];
+#endif
+        }];
     }
-    
+#if !__has_feature(objc_arc)
+    [blockError autorelease];
+#endif
+    if (outError && blockError) {
+        *outError = blockError;
+    }
+    if (!ok)
+    {
+        return nil;
+    }
     
     // What we consider to be "contents" is actually a worker block
     BOOL (^contents)(NSURL *, NSSaveOperationType, NSURL *, NSError**) = ^(NSURL *url, NSSaveOperationType saveOperation, NSURL *originalContentsURL, NSError **error) {
