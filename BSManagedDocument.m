@@ -877,8 +877,22 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 - (BOOL)writeBackupToURL:(NSURL *)backupURL error:(NSError **)outError;
 {
     NSURL *source = self.mostRecentlySavedFileURL;
-    /* The following also copies any additional content in the package. */
-	return [[NSFileManager defaultManager] copyItemAtURL:source toURL:backupURL error:outError];
+
+    BOOL ok;
+    /* In case the user inadvertently clicks File > Duplicate on a new
+     document which has not been saved yet, source will be nil, so
+     we check for that to avoid a subsequent NSFileManager exception. */
+	if (source)
+    {
+        /* The following also copies any additional content in the package. */
+        ok = [[NSFileManager defaultManager] copyItemAtURL:source toURL:backupURL error:outError];
+    }
+    else
+    {
+        ok = YES;
+    }
+
+    return ok;
 }
 
 - (BOOL)writeToURL:(NSURL *)inURL
