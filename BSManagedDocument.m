@@ -670,7 +670,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     //  * super is documented to use -performAsynchronousFileAccessUsingBlock: internally
     //  * Autosaving (as tested on 10.7) is declared to the system as *file access*, rather than an *activity*, so a regular save won't block the UI waiting for autosave to finish
     //  * If autosaving while quitting, calling -performActivity… here results in deadlock
-    [self performAsynchronousFileAccessUsingBlock:^(void (^fileAccessCompletionHandler)(void)) {
+    [self performAsynchronousFileAccessUsingBlock:^(void (^fileAccessCompletionHandler)(void)) {  // Note StackPoint2
         
         NSAssert(_contents == nil, @"Can't begin save; another is already in progress. Perhaps you forgot to wrap the call inside of -performActivityWithSynchronousWaiting:usingBlock:");
         
@@ -678,10 +678,47 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
         // Stash contents temporarily into an ivar so -writeToURL:… can access it from the worker thread
         NSError *error = nil ;
         _contents = [self contentsForURL:url ofType:typeName saveOperation:saveOperation error:&error];
-        
-        if (!_contents)
+
+        BOOL notLoaded = [[[NSDocumentController sharedDocumentController] documents] indexOfObject:self] == NSNotFound;
+        if (notLoaded) {
+            NSLog(@"Warning 382-6734 Aborting save cuz not loaded: %@", self);
+            /* I have seen this occur if a document save is attempted during
+             document opening, as for example if if document opening includes
+             some kind of integrity check which fixes problems.  If such a
+             too-early save is allowed tp proceed here, the call below to
+             [super saveToURL:ofType:forSaveOperation:completionHandler:] will
+             hang with the following stack:
+
+             #0    0x00007fff7bdd3266 in semaphore_wait_trap ()
+             #1    0x00007fff7bc51bd9 in _dispatch_sema4_wait ()
+             #2    0x00007fff7bc523a0 in _dispatch_semaphore_wait_slow ()
+             #3    0x00007fff5158b756 in -[NSFileCoordinator(NSPrivate) _blockOnAccessClaim:withAccessArbiter:] ()
+             #4    0x00007fff517512f0 in -[NSFileCoordinator(NSPrivate) _coordinateReadingItemAtURL:options:writingItemAtURL:options:error:byAccessor:] ()
+             #5    0x00007fff4d3873cc in -[NSDocument(NSDocumentSaving) _fileCoordinator:coordinateReadingContentsAndWritingItemAtURL:byAccessor:] ()
+             #6    0x00007fff4d389098 in __85-[NSDocument(NSDocumentSaving) _saveToURL:ofType:forSaveOperation:completionHandler:]_block_invoke_2.810 ()
+             #7    0x00007fff4d388844 in __85-[NSDocument(NSDocumentSaving) _saveToURL:ofType:forSaveOperation:completionHandler:]_block_invoke ()
+             #8    0x00007fff4d3886c7 in -[NSDocument(NSDocumentSaving) _saveToURL:ofType:forSaveOperation:completionHandler:] ()
+             #9    0x00000001062bd7c1 in __73-[BSManagedDocument saveToURL:ofType:forSaveOperation:completionHandler:]_block_invoke at // Note StackPoint1
+             #10    0x00007fff4cea138d in -[NSDocument(NSDocumentSerializationAPIs) continueFileAccessUsingBlock:] ()
+             #11    0x00007fff4cea1ab6 in -[NSDocument(NSDocumentSerializationAPIs) _performFileAccess:] ()
+             #12    0x00000001062bd52d in -[BSManagedDocument saveToURL:ofType:forSaveOperation:completionHandler:] at // Note StackPoint2
+
+             Looks like a file coordination deadlock.  I found that, duing such
+             an attempted save, the document is oddly not in the document
+             controller's documents yet; hence the condition `notLoaded`.
+             */
+        }
+        BOOL noContents = (_contents == nil);
+        if (noContents) {
+            NSLog(@"Warning 382-6735 Aborting save cuz no contents: %@", self);
+        }
+
+        if (noContents || notLoaded)
         {
+            // In either of these exceptional cases, abort the save.
+
             // The docs say "be sure to invoke super", but by my understanding it's fine not to if it's because of a failure, as the filesystem hasn't been touched yet.
+            _contents = nil;
             fileAccessCompletionHandler();
             if (completionHandler) completionHandler(error);
             return;
@@ -693,7 +730,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
         
         
         // Kick off async saving work
-        [super saveToURL:url ofType:typeName forSaveOperation:saveOperation completionHandler:^(NSError *error) {
+        [super saveToURL:url ofType:typeName forSaveOperation:saveOperation completionHandler:^(NSError *error) {  // Note StackPoint1
             
             // If the save failed, it might be an error the user can recover from.
 			// e.g. the dreaded "file modified by another application"
