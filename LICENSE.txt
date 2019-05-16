@@ -1,4 +1,4 @@
-Copyright (c) 2012-2013 Karelia Software, Basil Salad Software. All rights reserved.
+Copyright (c) 2012-2019 Jerome Krinock dba Sheep Systems, Karelia Software, Basil Salad Software. All rights reserved.
 http://basilsalad.com
 
 Licensed under the BSD License <http://www.opensource.org/licenses/bsd-license>
