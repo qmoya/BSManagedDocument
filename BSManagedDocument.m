@@ -638,10 +638,20 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
                                                           error:error];
     if (!attributes) return NO;
     
-    BOOL result = [[NSFileManager defaultManager] createDirectoryAtPath:[url path]
-                                            withIntermediateDirectories:NO
-                                                             attributes:attributes
-                                                                  error:error];
+    BOOL result = NO;
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    if ([fileManager respondsToSelector:
+        @selector(createDirectoryAtURL:withIntermediateDirectories:attributes:error:)]) {
+        result = [fileManager createDirectoryAtURL:url
+                       withIntermediateDirectories:NO
+                                        attributes:attributes
+                                             error:error];
+    } else {
+        result = [fileManager createDirectoryAtPath:[url path]
+                        withIntermediateDirectories:NO
+                                         attributes:attributes
+                                              error:error];
+    }
     if (!result) return NO;
     
     // Create store content folder too
@@ -650,10 +660,19 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     {
         NSURL *storeContentURL = [url URLByAppendingPathComponent:storeContent];
         
-        result = [[NSFileManager defaultManager] createDirectoryAtPath:[storeContentURL path]
-                                           withIntermediateDirectories:NO
-                                                            attributes:attributes
-                                                                 error:error];
+        if ([fileManager respondsToSelector:
+            @selector(createDirectoryAtURL:withIntermediateDirectories:attributes:error:)]) {
+             result = [fileManager createDirectoryAtURL:storeContentURL
+                            withIntermediateDirectories:NO
+                                             attributes:attributes
+                                                  error:error];
+        } else {
+            result = [fileManager createDirectoryAtPath:[storeContentURL path]
+                            withIntermediateDirectories:NO
+                                             attributes:attributes
+                                                  error:error];
+        }
+
         if (!result) return NO;
     }
     
@@ -1035,11 +1054,15 @@ originalContentsURL:(NSURL *)originalContentsURL
 - (BOOL)preflightURL:(NSURL *)storeURL thenSaveContext:(NSManagedObjectContext *)context error:(NSError **)error;
 {
     // Preflight the save since it tends to crash upon failure pre-Mountain Lion. rdar://problem/10609036
-    // Could use this code on 10.7+:
-    //NSNumber *writable;
-    //result = [URL getResourceValue:&writable forKey:NSURLIsWritableKey error:&error];
+    NSNumber *writable = nil;
+#if (defined MAC_OS_X_VERSION_10_7) && MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_7
+    if (![storeURL getResourceValue:&writable forKey:NSURLIsWritableKey error:error])
+        return NO;
+#else
+    writable = @([[NSFileManager defaultManager] isWritableFileAtPath:[storeURL path]]);
+#endif
     
-    if ([[NSFileManager defaultManager] isWritableFileAtPath:[storeURL path]])
+    if (writable.boolValue)
     {
         // Ensure store is saving to right location
         if ([context.persistentStoreCoordinator setURL:storeURL forPersistentStore:_store])
