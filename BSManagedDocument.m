@@ -318,6 +318,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 - (BOOL)removePersistentStoreWithError:(NSError **)outError {
     NSManagedObjectContext *context = self.managedObjectContext;
     __block BOOL result = YES;
+    __block NSError * error = nil ;
     if ([context respondsToSelector:@selector(parentContext)])
     {
         // In my testing, HAVE to do the removal using parent's private queue. Otherwise, it deadlocks, trying to acquire a _PFLock
@@ -328,16 +329,29 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
         }
         
         [context performBlockAndWait:^{
-            result = [context.persistentStoreCoordinator removePersistentStore:_store error:outError];
+            result = [context.persistentStoreCoordinator removePersistentStore:_store error:&error];
+#if !__has_feature(objc_arc)
+            [error retain];
+#endif
         }];
     }
     else
     {
-        result = [context.persistentStoreCoordinator removePersistentStore:_store error:outError];
+        result = [context.persistentStoreCoordinator removePersistentStore:_store error:&error];
+#if !__has_feature(objc_arc)
+        [error retain];
+#endif
     }
     
-    if (!result)
+    if (!result) {
+#if !__has_feature(objc_arc)
+        [error autorelease];
+#endif
+        if (outError) {
+            *outError = error;
+        }
         return NO;
+    }
     
 #if !__has_feature(objc_arc)
     [_store release];
