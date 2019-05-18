@@ -136,6 +136,9 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 #endif
     }
 
+    if (self.undoManager) {
+        [NSNotificationCenter.defaultCenter removeObserver:self name:nil object:self.undoManager];
+    }
     self.undoManager = context.undoManager;
 
     // Need 10.7+ to support parent context
