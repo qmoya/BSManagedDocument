@@ -111,6 +111,26 @@ __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
 + (NSString *)documentPathForStorePath:(NSString*)path
                      documentExtension:(NSString*)extension;
 
+/*!
+ @brief    Returns the desired class of instances' managed object context
+
+ @details  Subclasses may override.  The default implemenation returns
+ NSManagedObjectContext.  When considering override, note Apple documentation:
+ -- "You are strongly discouraged from subclassing NSManagedObjectContext."
+ But a comment by Mike Abdullah in pre-2019 commits of the .m file implies
+ that Karelia did this in their Sandvox app.
+ */
++ (Class)managedObjectContextClass;
+
+/*!
+ @brief    Returns the desired class of instances' undo manager
+
+ @details  Subclasses may override.  In particular, subclasses may return nil
+ to specify that the receiver should not support undo.  The default
+ implemenation returns NSUndoManager.
+ */
++ (Class)undoManagerClass;
+
 /**
  The receiver's managed object context
  

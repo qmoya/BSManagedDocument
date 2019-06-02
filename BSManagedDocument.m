@@ -125,6 +125,34 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 
     NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self managedObjectModel]];
     
+    [context performBlockAndWait:^{
+        /* In macOS 10.11 and earler, the newly-iniialized `context`
+         typically found at this point will have a NSUndoManager.  But in
+         macOS 10.12 and later, surprise, it will have nil undo manager.
+         https://github.com/karelia/BSManagedDocument/issues/47
+         https://github.com/karelia/BSManagedDocument/issues/50
+         In either case, this may be not what the developer has specified
+         in overriding +undoManagerClass.  So we test… */
+        if (context.undoManager.class != [[self class] undoManagerClass])
+        {
+            /* This branch will always execute, *except* in two *edge* cases:
+             * Edge Case 1: macOS 10.11 or earlier, and +undoManagerClass is
+             overridden to return NSUndoManager, or not overridden.
+             * Edge Case 2: macOS 10.12 or later, and +undoManagerClass is
+             overridden to return nil. */
+            NSUndoManager *undoManager = [[[[self class] undoManagerClass] alloc] init];
+            context.undoManager = undoManager;  // may rightfully be nil
+#if !__has_feature(objc_arc)
+            [undoManager release];
+#endif
+            if (self.hasUndoManager)
+            {
+                [NSNotificationCenter.defaultCenter removeObserver:self name:nil object:self.undoManager];
+            }
+        }
+        self.undoManager = context.undoManager;
+    }];
+
     // Need 10.7+ to support parent context
     if ([context respondsToSelector:@selector(setParentContext:)])
     {
@@ -158,8 +186,9 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     // See note JK20170624 at end of file
 }
 
-// Having this method is a bit of a hack for Sandvox's benefit. I intend to remove it in favour of something neater
+// Allow subclasses to have custom managed object contexts or undo managers
 + (Class)managedObjectContextClass; { return [NSManagedObjectContext class]; }
++ (Class)undoManagerClass; {return [NSUndoManager class]; }
 
 - (NSManagedObjectModel *)managedObjectModel;
 {

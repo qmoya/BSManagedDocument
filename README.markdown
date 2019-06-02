@@ -1,6 +1,6 @@
 # BSManagedDocument
 
-  A document class that mimics `UIManagedDocument` to support Core Data in all its modern glory:
+  A document class that mimics `UIManagedDocument` to support Core Data in all its modern glory, and more:
 
   *   Saves to a file package
 
@@ -17,6 +17,8 @@
   *   If the document moves on disk, Core Data is kept informed of the new location
 
   *   If multiple validation errors occur during saving, the presented error is adjusted to make debugging a little easier
+  
+  *   Subclasses may specify a custom undo manager class instead of NSUndoManager, or nil undo manager.
 
   *   And of course, full support for Autosave-In-Place and Versions
 
