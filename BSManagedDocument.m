@@ -125,6 +125,22 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 
     NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self managedObjectModel]];
     
+    // 10.12 stopped creating undoManagers for us automatically
+    // https://github.com/karelia/BSManagedDocument/issues/47
+    // https://github.com/karelia/BSManagedDocument/issues/50
+    if (context != nil && context.undoManager == nil) {
+        NSUndoManager *undoManager = [[NSUndoManager alloc] init];
+        context.undoManager = undoManager;
+#if !__has_feature(objc_arc)
+        [undoManager release];
+#endif
+        if (self.hasUndoManager) {
+            [NSNotificationCenter.defaultCenter removeObserver:self name:nil object:self.undoManager];
+        }
+    }
+
+    self.undoManager = context.undoManager;
+
     // Need 10.7+ to support parent context
     if ([context respondsToSelector:@selector(setParentContext:)])
     {
