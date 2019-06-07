@@ -747,10 +747,18 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 
             // The docs say "be sure to invoke super", but by my understanding it's fine not to if it's because of a failure, as the filesystem hasn't been touched yet.
             _contents = nil;
-            dispatch_async(dispatch_get_main_queue(), ^{
+            if ([NSThread isMainThread])
+            {
                 fileAccessCompletionHandler();
                 if (completionHandler) completionHandler(error);
-            });
+            }
+            else
+            {
+                dispatch_sync(dispatch_get_main_queue(), ^{
+                    fileAccessCompletionHandler();
+                    if (completionHandler) completionHandler(error);
+                });
+            }
             return;
         }
         
@@ -801,13 +809,20 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
             {
                 [self deleteAutosavedContentsTempDirectory];
             }
-            
 			
 			// And can finally declare we're done
-            dispatch_async(dispatch_get_main_queue(), ^{
+            if ([NSThread isMainThread])
+            {
                 fileAccessCompletionHandler();
                 if (completionHandler) completionHandler(error);
-            });
+            }
+            else
+            {
+                dispatch_sync(dispatch_get_main_queue(), ^{
+                    fileAccessCompletionHandler();
+                    if (completionHandler) completionHandler(error);
+                });
+            }
         }];
     }];
 }
