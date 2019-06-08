@@ -347,7 +347,10 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 - (BOOL)removePersistentStoreWithError:(NSError **)outError {
     NSManagedObjectContext *context = self.managedObjectContext;
     __block BOOL result = YES;
-    __block NSError * error = nil ;
+    __block NSError * error = nil;
+    if (!_store)
+        return YES;
+
     if ([context respondsToSelector:@selector(parentContext)])
     {
         // In my testing, HAVE to do the removal using parent's private queue. Otherwise, it deadlocks, trying to acquire a _PFLock
