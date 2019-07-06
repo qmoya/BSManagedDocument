@@ -229,29 +229,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     if (!_coordinator)
         _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self managedObjectModel]];
 
-    // Adding a persistent store will post a notification. If your app already has an
-    // NSObjectController (or subclass) setup to the context, it will react to that notification,
-    // on the assumption it's posted on the main thread. That could do some very weird things, so
-    // let's make sure the notification is actually posted on the main thread.
-    // Also seems to fix the deadlock in https://github.com/karelia/BSManagedDocument/issues/36
-    if ([_coordinator respondsToSelector:@selector(performBlockAndWait:)])
-    {
-        [_coordinator performBlockAndWait:^{
-            _store = [_coordinator addPersistentStoreWithType:[self persistentStoreTypeForFileType:fileType]
-                                                configuration:configuration
-                                                          URL:storeURL
-                                                      options:storeOptions
-                                                        error:&error];
-#if ! __has_feature(objc_arc)
-            [_store retain];
-            [error retain];
-#endif
-        }];
-#if ! __has_feature(objc_arc)
-        [error autorelease];
-#endif
-    }
-    else {
+    void (^addPersistentStoreBlock)(void) = ^{
         _store = [_coordinator addPersistentStoreWithType:[self persistentStoreTypeForFileType:fileType]
                                             configuration:configuration
                                                       URL:storeURL
@@ -259,8 +237,31 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
                                                     error:&error];
 #if ! __has_feature(objc_arc)
         [_store retain];
+        [error retain];
 #endif
+    };
+    
+    // Adding a persistent store will post a notification. If your app already has an
+    // NSObjectController (or subclass) setup to the context, it will react to that notification,
+    // on the assumption it's posted on the main thread. That could do some very weird things, so
+    // let's make sure the notification is actually posted on the main thread.
+    // Also seems to fix the deadlock in https://github.com/karelia/BSManagedDocument/issues/36
+    if ([_coordinator respondsToSelector:@selector(performBlockAndWait:)]) {
+        // 10.10 and later
+        [_coordinator performBlockAndWait:addPersistentStoreBlock];
+    } else if ([_managedObjectContext respondsToSelector:@selector(performBlockAndWait:)]) {
+        // On 10.7 - 10.9, use the context's performBlockAndWait: - BUT ONLY IF THE CONTEXT
+        // ALREADY EXISTS. Creating a context on this thread (which self.managedObjectContext
+        // will do) can result in a deadlock with the Version Browser.
+        [_managedObjectContext performBlockAndWait:addPersistentStoreBlock];
+    } else {
+        // If the context doesn't exist, or if we're on 10.6, then we don't worry about notifications
+        // posting on the wrong thread, so just do the work on this thread.
+        addPersistentStoreBlock();
     }
+#if ! __has_feature(objc_arc)
+    [error autorelease];
+#endif
     
     if (error && error_p)
     {
@@ -352,19 +353,32 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     if (!_store)
         return YES;
     
-    if ([_coordinator respondsToSelector:@selector(performBlockAndWait:)]) {
-        [_coordinator performBlockAndWait:^{
-            result = [_coordinator removePersistentStore:_store error:&error];
-#if !__has_feature(objc_arc)
-            [error retain];
-#endif
-        }];
-#if !__has_feature(objc_arc)
-        [error autorelease];
-#endif
-    } else {
+    void (^removePersistentStoreBlock)(void) = ^{
         result = [_coordinator removePersistentStore:_store error:&error];
+#if !__has_feature(objc_arc)
+        [error retain];
+#endif
+    };
+    
+    if ([_coordinator respondsToSelector:@selector(performBlockAndWait:)]) {
+        // (10.10 and later)
+        [_coordinator performBlockAndWait:removePersistentStoreBlock];
+    } else if ([_managedObjectContext respondsToSelector:@selector(performBlockAndWait:)]) {
+        // (10.7 - 10.9, and a context already exists)
+        // In my testing, HAVE to do the removal using parent's private queue.
+        // Otherwise, it deadlocks, trying to acquire a _PFLock
+        NSManagedObjectContext *context = _managedObjectContext;
+        while (context.parentContext) {
+            context = context.parentContext;
+        }
+        [context performBlockAndWait:removePersistentStoreBlock];
+    } else {
+        // If there's not an existing context, or we're on 10.6, any thread should be fine
+        removePersistentStoreBlock();
     }
+#if !__has_feature(objc_arc)
+    [error autorelease];
+#endif
     
     if (!result) {
 
