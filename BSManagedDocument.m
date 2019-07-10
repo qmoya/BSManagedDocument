@@ -122,11 +122,17 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 - (void)setManagedObjectContext:(NSManagedObjectContext *)context;
 {
     // Setup the rest of the stack for the context
-
-    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self managedObjectModel]];
+    if (!_coordinator)
+        _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self managedObjectModel]];
     
-    [context performBlockAndWait:^{
-        /* In macOS 10.11 and earler, the newly-iniialized `context`
+    if (self.hasUndoManager)
+    {
+        [NSNotificationCenter.defaultCenter removeObserver:self name:nil object:self.undoManager];
+        self.undoManager = nil;
+    }
+    
+    void (^setUndoManagerBlock)(void) = ^{
+        /* In macOS 10.11 and earler, the newly-initialized `context`
          typically found at this point will have a NSUndoManager.  But in
          macOS 10.12 and later, surprise, it will have nil undo manager.
          https://github.com/karelia/BSManagedDocument/issues/47
@@ -145,20 +151,18 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 #if !__has_feature(objc_arc)
             [undoManager release];
 #endif
-            if (self.hasUndoManager)
-            {
-                [NSNotificationCenter.defaultCenter removeObserver:self name:nil object:self.undoManager];
-            }
         }
         self.undoManager = context.undoManager;
-    }];
+    };
 
     // Need 10.7+ to support parent context
     if ([context respondsToSelector:@selector(setParentContext:)])
     {
+        [context performBlockAndWait:setUndoManagerBlock];
+         
         NSManagedObjectContext *parentContext = [[self.class.managedObjectContextClass alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
         parentContext.undoManager = nil; // no point in it supporting undo
-        parentContext.persistentStoreCoordinator = coordinator;
+        parentContext.persistentStoreCoordinator = _coordinator;
         
         [context setParentContext:parentContext];
 
@@ -168,7 +172,8 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     }
     else
     {
-        [context setPersistentStoreCoordinator:coordinator];
+        setUndoManagerBlock();
+        context.persistentStoreCoordinator = _coordinator;
     }
 
 #if __has_feature(objc_arc)
@@ -176,11 +181,6 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 #else
     [context retain];
     [_managedObjectContext release]; _managedObjectContext = context;
-#endif
-    
-
-#if !__has_feature(objc_arc)
-    [coordinator release];  // context hangs onto it for us
 #endif
 
     // See note JK20170624 at end of file
@@ -220,43 +220,46 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
      'error' variable to isolate it from the out NSError**.
      Jerry Krinock 2016-Mar-14. */
     NSError* __block error = nil ;
-    NSManagedObjectContext *context = self.managedObjectContext;
+    // Create a coordinator if necessary, but do not under any circumstances invoke
+    // [self managedObjectContext] inside this function. Creating the managedObjectContext
+    // requires access to the main thread (deep inside setParentContext:), but the main
+    // thread could be blocked by the Version Browser waiting for a reverted document to
+    // load, resulting in a deadlock. So we create the coordinator now and add it to
+    // the context later, when we know we have access to the main thread.
+    if (!_coordinator)
+        _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self managedObjectModel]];
 
+    void (^addPersistentStoreBlock)(void) = ^{
+        _store = [_coordinator addPersistentStoreWithType:[self persistentStoreTypeForFileType:fileType]
+                                            configuration:configuration
+                                                      URL:storeURL
+                                                  options:storeOptions
+                                                    error:&error];
+#if ! __has_feature(objc_arc)
+        [_store retain];
+        [error retain];
+#endif
+    };
+    
     // Adding a persistent store will post a notification. If your app already has an
     // NSObjectController (or subclass) setup to the context, it will react to that notification,
     // on the assumption it's posted on the main thread. That could do some very weird things, so
     // let's make sure the notification is actually posted on the main thread.
     // Also seems to fix the deadlock in https://github.com/karelia/BSManagedDocument/issues/36
-    if ([context respondsToSelector:@selector(performBlockAndWait:)])
-    {
-        [context performBlockAndWait:^{
-            NSPersistentStoreCoordinator *storeCoordinator = context.persistentStoreCoordinator;
-
-            _store = [storeCoordinator addPersistentStoreWithType:[self persistentStoreTypeForFileType:fileType]
-                                                    configuration:configuration
-                                                              URL:storeURL
-                                                          options:storeOptions
-                                                            error:&error];
-#if ! __has_feature(objc_arc)
-            [error retain];
-#endif
-        }];
+    if ([_coordinator respondsToSelector:@selector(performBlockAndWait:)]) {
+        // 10.10 and later
+        [_coordinator performBlockAndWait:addPersistentStoreBlock];
+    } else if ([_managedObjectContext respondsToSelector:@selector(performBlockAndWait:)]) {
+        // On 10.7 - 10.9, use the context's performBlockAndWait: - BUT ONLY IF THE CONTEXT
+        // ALREADY EXISTS. Creating a context on this thread (which self.managedObjectContext
+        // will do) can result in a deadlock with the Version Browser.
+        [_managedObjectContext performBlockAndWait:addPersistentStoreBlock];
+    } else {
+        // If the context doesn't exist, or if we're on 10.6, then we don't worry about notifications
+        // posting on the wrong thread, so just do the work on this thread.
+        addPersistentStoreBlock();
     }
-    else {
-        NSPersistentStoreCoordinator *storeCoordinator = context.persistentStoreCoordinator;
-
-        _store = [storeCoordinator addPersistentStoreWithType:[self persistentStoreTypeForFileType:fileType]
-                                                configuration:configuration
-                                                          URL:storeURL
-                                                      options:storeOptions
-                                                        error:&error];
 #if ! __has_feature(objc_arc)
-        [error retain];
-#endif
-    }
-
-#if ! __has_feature(objc_arc)
-	[_store retain];
     [error autorelease];
 #endif
     
@@ -264,7 +267,6 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     {
         *error_p = error;
     }
-
     return (_store != nil);
 }
 
@@ -334,6 +336,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     [_managedObjectContext release];
     [_managedObjectModel release];
     [_store release];
+    [_coordinator release];
     [_autosavedContentsTempDirectoryURL release];
     
     // _additionalContent is unretained so shouldn't be released here
@@ -345,40 +348,40 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 #pragma mark Reading Document Data
 
 - (BOOL)removePersistentStoreWithError:(NSError **)outError {
-    NSManagedObjectContext *context = self.managedObjectContext;
     __block BOOL result = YES;
     __block NSError * error = nil;
     if (!_store)
         return YES;
-
-    if ([context respondsToSelector:@selector(parentContext)])
-    {
-        // In my testing, HAVE to do the removal using parent's private queue. Otherwise, it deadlocks, trying to acquire a _PFLock
-        NSManagedObjectContext *parent = context.parentContext;
-        while (parent)
-        {
-            context = parent;   parent = context.parentContext;
-        }
-        
-        [context performBlockAndWait:^{
-            result = [context.persistentStoreCoordinator removePersistentStore:_store error:&error];
-#if !__has_feature(objc_arc)
-            [error retain];
-#endif
-        }];
-    }
-    else
-    {
-        result = [context.persistentStoreCoordinator removePersistentStore:_store error:&error];
+    
+    void (^removePersistentStoreBlock)(void) = ^{
+        result = [_coordinator removePersistentStore:_store error:&error];
 #if !__has_feature(objc_arc)
         [error retain];
 #endif
+    };
+    
+    if ([_coordinator respondsToSelector:@selector(performBlockAndWait:)]) {
+        // (10.10 and later)
+        [_coordinator performBlockAndWait:removePersistentStoreBlock];
+    } else if ([_managedObjectContext respondsToSelector:@selector(performBlockAndWait:)]) {
+        // (10.7 - 10.9, and a context already exists)
+        // In my testing, HAVE to do the removal using parent's private queue.
+        // Otherwise, it deadlocks, trying to acquire a _PFLock
+        NSManagedObjectContext *context = _managedObjectContext;
+        while (context.parentContext) {
+            context = context.parentContext;
+        }
+        [context performBlockAndWait:removePersistentStoreBlock];
+    } else {
+        // If there's not an existing context, or we're on 10.6, any thread should be fine
+        removePersistentStoreBlock();
     }
+#if !__has_feature(objc_arc)
+    [error autorelease];
+#endif
     
     if (!result) {
-#if !__has_feature(objc_arc)
-        [error autorelease];
-#endif
+
         if (outError) {
             *outError = error;
         }
@@ -619,7 +622,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
         // Restore persistent store URL after Save To-type operations. Even if save failed (just to be on the safe side)
         if (saveOperation == NSSaveToOperation)
         {
-            if (![[_store persistentStoreCoordinator] setURL:originalContentsURL forPersistentStore:_store])
+            if (![_coordinator setURL:originalContentsURL forPersistentStore:_store])
             {
                 NSLog(@"Failed to reset store URL after Save To Operation");
             }
@@ -1057,23 +1060,7 @@ originalContentsURL:(NSURL *)originalContentsURL
     if ([context respondsToSelector:@selector(parentContext)])
     {
         [self unblockUserInteraction];
-        
-        NSManagedObjectContext *parent = [context parentContext];
-        
-        [parent performBlockAndWait:^{
-            result = [self preflightURL:storeURL thenSaveContext:parent error:error];
-            
-#if ! __has_feature(objc_arc)
-            // Errors need special handling to guarantee surviving crossing the block. http://www.mikeabdullah.net/cross-thread-error-passing.html
-            if (!result && error) [*error retain];
-#endif
-            
-        }];
-        
-#if ! __has_feature(objc_arc)
-        if (!result && error) [*error autorelease]; // tidy up since any error was retained on worker thread
-#endif
-        
+        result = [self preflightURL:storeURL thenSaveContext:[context parentContext] error:error];
     }
     else
     {
@@ -1098,8 +1085,25 @@ originalContentsURL:(NSURL *)originalContentsURL
     if (writable.boolValue)
     {
         // Ensure store is saving to right location
-        if ([context.persistentStoreCoordinator setURL:storeURL forPersistentStore:_store])
+        if ([_coordinator setURL:storeURL forPersistentStore:_store])
         {
+            if ([context respondsToSelector:@selector(performBlockAndWait:)]) {
+                __block BOOL result = NO;
+                [context performBlockAndWait:^{
+                    result = [context save:error];
+                    
+#if ! __has_feature(objc_arc)
+                    // Errors need special handling to guarantee surviving crossing the block. http://www.mikeabdullah.net/cross-thread-error-passing.html
+                    if (!result && error) [*error retain];
+#endif
+                }];
+                
+#if ! __has_feature(objc_arc)
+                if (!result && error) [*error autorelease]; // tidy up since any error was retained on worker thread
+#endif
+                return result;
+            }
+            
             return [context save:error];
         }
     }
@@ -1139,11 +1143,9 @@ originalContentsURL:(NSURL *)originalContentsURL
 {
     if (!_store) return;
     
-    NSPersistentStoreCoordinator *coordinator = [[self managedObjectContext] persistentStoreCoordinator];
-    
     NSURL *storeURL = [[self class] persistentStoreURLForDocumentURL:absoluteURL];
     
-    if (![coordinator setURL:storeURL forPersistentStore:_store])
+    if (![_coordinator setURL:storeURL forPersistentStore:_store])
     {
         NSLog(@"Unable to set store URL");
     }

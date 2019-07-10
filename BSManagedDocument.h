@@ -60,6 +60,7 @@ __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
     NSManagedObjectContext	*_managedObjectContext;
     NSManagedObjectModel    *_managedObjectModel;
 	NSPersistentStore       *_store;
+    NSPersistentStoreCoordinator *_coordinator;
     
     id  _contents;
     
