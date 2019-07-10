@@ -5,11 +5,11 @@
 //  Created by Abizer Nasir on 26/01/2013.
 //  Copyright (c) 2013 Jungle Candy Software. All rights reserved.
 //
-
-#import <SenTestingKit/SenTestingKit.h>
+#import <Cocoa/Cocoa.h>
+#import <XCTest/XCTest.h>
 #import "Document.h"
 
-@interface BSManagedDocumentTests : SenTestCase
+@interface BSManagedDocumentTests : XCTestCase
 @end
 
 @implementation BSManagedDocumentTests {
@@ -34,7 +34,7 @@
     NSError *error;
     BOOL readingResult = [_document readFromURL:version1URL ofType:@"DocumentType" error:&error];
 
-    STAssertTrue(readingResult, @"Should be able to read version1 files, error is %@", error);
+    XCAssertTrue(readingResult, @"Should be able to read version1 files, error is %@", error);
 }
 
 @end
