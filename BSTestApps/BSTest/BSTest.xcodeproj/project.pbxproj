@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		481A439322D68E3200087518 /* BSTestTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 481A439222D68E3200087518 /* BSTestTests.m */; };
 		481A439B22D6934A00087518 /* version1MRC.bstest in Resources */ = {isa = PBXBuildFile; fileRef = AD46450E16B401D900839092 /* version1MRC.bstest */; };
+		481A43A022D6FFC700087518 /* DataToTextTransformer.m in Sources */ = {isa = PBXBuildFile; fileRef = 481A439F22D6FFC700087518 /* DataToTextTransformer.m */; };
 		AD4644A716B3EAC900839092 /* BSManagedDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = AD4644A616B3EAC900839092 /* BSManagedDocument.m */; };
 		AD4644F616B3FEF900839092 /* Model.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = AD4644F316B3FEF800839092 /* Model.xcdatamodeld */; };
 		AD46453E16B4122E00839092 /* Ebook.m in Sources */ = {isa = PBXBuildFile; fileRef = AD46453D16B4122E00839092 /* Ebook.m */; };
@@ -37,6 +38,8 @@
 		481A439022D68E3200087518 /* BSTestTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BSTestTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		481A439222D68E3200087518 /* BSTestTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BSTestTests.m; sourceTree = "<group>"; };
 		481A439422D68E3200087518 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		481A439E22D6FFC700087518 /* DataToTextTransformer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DataToTextTransformer.h; sourceTree = "<group>"; };
+		481A439F22D6FFC700087518 /* DataToTextTransformer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DataToTextTransformer.m; sourceTree = "<group>"; };
 		AD4644A516B3EAC900839092 /* BSManagedDocument.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = BSManagedDocument.h; path = ../../BSManagedDocument.h; sourceTree = SOURCE_ROOT; };
 		AD4644A616B3EAC900839092 /* BSManagedDocument.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = BSManagedDocument.m; path = ../../BSManagedDocument.m; sourceTree = SOURCE_ROOT; };
 		AD4644D016B3F94100839092 /* SenTestingKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SenTestingKit.framework; path = Library/Frameworks/SenTestingKit.framework; sourceTree = DEVELOPER_DIR; };
@@ -145,6 +148,8 @@
 				AD9362541681C0DF00B4FA9C /* MainMenu.xib */,
 				AD9362A41681CCF600B4FA9C /* Model */,
 				AD9362431681C0DF00B4FA9C /* Supporting Files */,
+				481A439E22D6FFC700087518 /* DataToTextTransformer.h */,
+				481A439F22D6FFC700087518 /* DataToTextTransformer.m */,
 			);
 			path = BSTest;
 			sourceTree = "<group>";
@@ -231,8 +236,11 @@
 				TargetAttributes = {
 					481A438F22D68E3200087518 = {
 						CreatedOnToolsVersion = 10.2.1;
-						ProvisioningStyle = Automatic;
+						ProvisioningStyle = Manual;
 						TestTargetID = AD9362371681C0DF00B4FA9C;
+					};
+					AD9362371681C0DF00B4FA9C = {
+						ProvisioningStyle = Manual;
 					};
 				};
 			};
@@ -296,6 +304,7 @@
 				AD4644A716B3EAC900839092 /* BSManagedDocument.m in Sources */,
 				AD4644F616B3FEF900839092 /* Model.xcdatamodeld in Sources */,
 				AD46453E16B4122E00839092 /* Ebook.m in Sources */,
+				481A43A022D6FFC700087518 /* DataToTextTransformer.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -375,7 +384,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CODE_SIGN_IDENTITY = "Mac Developer";
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = "";
@@ -394,6 +403,7 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sheepsystems.BSTestTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BSTest.app/Contents/MacOS/BSTest";
 			};
 			name = Debug;
@@ -428,7 +438,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CODE_SIGN_IDENTITY = "Mac Developer";
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				COPY_PHASE_STRIP = NO;
 				DEVELOPMENT_TEAM = "";
@@ -447,6 +457,7 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sheepsystems.BSTestTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BSTest.app/Contents/MacOS/BSTest";
 			};
 			name = Release;
@@ -509,12 +520,14 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BSTest/BSTest.entitlements;
 				CODE_SIGN_IDENTITY = "Mac Developer";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEVELOPMENT_TEAM = "";
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				GCC_PREFIX_HEADER = "BSTest/BSTest-Prefix.pch";
 				INFOPLIST_FILE = "BSTest/BSTest-Info.plist";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				WRAPPER_EXTENSION = app;
 			};
 			name = Debug;
@@ -524,12 +537,14 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BSTest/BSTest.entitlements;
 				CODE_SIGN_IDENTITY = "Mac Developer";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEVELOPMENT_TEAM = "";
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				GCC_PREFIX_HEADER = "BSTest/BSTest-Prefix.pch";
 				INFOPLIST_FILE = "BSTest/BSTest-Info.plist";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				WRAPPER_EXTENSION = app;
 			};
 			name = Release;
