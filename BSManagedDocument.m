@@ -23,6 +23,7 @@
 #import <objc/message.h>
 
 NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotification" ;
+NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
 
 @interface BSManagedDocument ()
 @property(nonatomic, copy) NSURL *autosavedContentsTempDirectoryURL;
@@ -851,6 +852,35 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 }
 #endif
 
+- (BOOL)spliceErrorWithCode:(NSInteger)code
+       localizedDescription:(NSString*)localizedDescription
+               intoOutError:(NSError**)outError
+{
+    NSMutableDictionary *mutant = [NSMutableDictionary new];
+    [mutant setObject:localizedDescription
+               forKey:NSLocalizedDescriptionKey];
+    if (*outError)
+    {
+        [mutant setObject:*outError
+                   forKey:NSUnderlyingErrorKey];
+    }
+    NSDictionary *userInfo = [mutant copy];
+    NSError* overlyingError = [NSError errorWithDomain:BSManagedDocumentErrorDomain
+                                                  code:code
+                                              userInfo:userInfo];
+    if (outError)
+    {
+        *outError = overlyingError;
+    }
+#if ! __has_feature(objc_arc)
+        [mutant release];
+        [userInfo release];
+#endif
+
+    return YES;  // Silence stupid compiler warning
+}
+
+
 /*	Regular Save operations can write directly to the existing document since Core Data provides atomicity for us
  */
 - (BOOL)writeSafelyToURL:(NSURL *)absoluteURL
@@ -897,6 +927,9 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 						
 						return NO;
 					}
+                    [self spliceErrorWithCode:478201
+                         localizedDescription:@"Failed writing backup prior to writing"
+                                 intoOutError:outError];
 				}
 			}
 			
@@ -908,7 +941,9 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
                      forSaveOperation:saveOperation
                   originalContentsURL:[self fileURL]
                                 error:outError];
-            
+            [self spliceErrorWithCode:478202
+                 localizedDescription:@"Failed regular writing"
+                         intoOutError:outError];
             
             if (!result)
             {
@@ -948,6 +983,9 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
                                   ofType:typeName
                         forSaveOperation:saveOperation
                                    error:outError];
+        [self spliceErrorWithCode:478203
+             localizedDescription:@"Failed other writing"
+                     intoOutError:outError];
     }
     
     if (result) {
@@ -991,22 +1029,27 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
             ofType:(NSString *)typeName
   forSaveOperation:(NSSaveOperationType)saveOp
 originalContentsURL:(NSURL *)originalContentsURL
-             error:(NSError **)error
+             error:(NSError **)outError
 {
     // Grab additional content before proceeding. This should *only* happen when writing entirely on the main thread
     // (e.g. Using one of the old synchronous -save… APIs. Note: duplicating a document calls -writeSafely… directly)
     // To have gotten here on any thread but the main one is a programming error and unworkable, so we throw an exception
     if (!_contents)
     {
-		_contents = [self contentsForURL:inURL ofType:typeName saveOperation:saveOp error:error];
+		_contents = [self contentsForURL:inURL ofType:typeName saveOperation:saveOp error:outError];
+        [self spliceErrorWithCode:478204
+             localizedDescription:@"Failed getting _contents"
+                     intoOutError:outError];
         if (!_contents) return NO;
         
         // Worried that _contents hasn't been retained? Never fear, we'll set it straight back to nil before exiting this method, I promise
         
         
         // And now we're ready to write for real
-        BOOL result = [self writeToURL:inURL ofType:typeName forSaveOperation:saveOp originalContentsURL:originalContentsURL error:error];
-        
+        BOOL result = [self writeToURL:inURL ofType:typeName forSaveOperation:saveOp originalContentsURL:originalContentsURL error:outError];
+        [self spliceErrorWithCode:478205
+             localizedDescription:@"Failed writing for real"
+                     intoOutError:outError];
         
         // Finish up. Don't worry, _additionalContent was never retained on this codepath, so doesn't need to be released
         _contents = nil;
@@ -1016,7 +1059,7 @@ originalContentsURL:(NSURL *)originalContentsURL
     
     // We implement contents as a block which is called to perform the writing
     BOOL (^contentsBlock)(NSURL *, NSSaveOperationType, NSURL *, NSError**) = _contents;
-    return contentsBlock(inURL, saveOp, originalContentsURL, error);
+    return contentsBlock(inURL, saveOp, originalContentsURL, outError);
 }
 
 - (void)setBundleBitForDirectoryAtURL:(NSURL *)url;

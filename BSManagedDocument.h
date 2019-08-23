@@ -53,6 +53,7 @@
 #import <Cocoa/Cocoa.h>
 
 extern NSString* BSManagedDocumentDidSaveNotification ;
+extern NSString* BSManagedDocumentErrorDomain ;
 
 __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
 {
