@@ -21,7 +21,7 @@
 //
 //  *   Saves to a file package
 //
-//  *   On 10.7+, asynchronous saving is supported. We set up a parent/child pair of contexts; the parent saves on its own thread
+//  *   On 10.7+, asynchronous saving is supported. We set up a parent/child pair of contexts; the parent saves on its own thread.  (Note that, even as late as macOS 10.15 in September 2019, NSPersistendDocument still does *not* support asynchronous saving.  (See Apple documentation > AppKit > NSPersistentDocument > Overview > Important.
 //
 //  *   Full support for concurrent document opening too
 //

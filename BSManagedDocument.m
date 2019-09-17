@@ -26,7 +26,11 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
 
 @interface BSManagedDocument ()
+
 @property(nonatomic, copy) NSURL *autosavedContentsTempDirectoryURL;
+@property(atomic, assign) BOOL isSaving;
+@property(atomic, assign) BOOL shouldCloseWhenDoneSaving;
+
 @end
 
 
@@ -321,7 +325,68 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
 
 #pragma mark Lifecycle
 
-- (void)close;
+/* The following three methods implement a mechanism which defer any requested
+closing of this document until any currently working Save or Save As
+operation is completed.
+ 
+ Without this mechanism, if the code in -closeNow is in -close as it was before
+ I fixed this, and if -close is invoked while saving is in progress, saving
+ may produce the following rather surprising error (with underlying errors):
+ 
+ code 478202 in domain: BSManagedDocumentErrorDomain
+ Failed regular writing
+
+ code: 478206 in domain: BSManagedDocumentErrorDomain
+ Failed creating package directories
+
+ code: 516 in domain: NSCocoaErrorDomain
+ The file “xxx” couldn’t be saved in the folder “yyy” because a file with the
+ same name already exists.
+
+ code: 17 in domain: NSPOSIXErrorDomain
+ The operation couldn’t be completed. File exists
+ 
+ This occurs because the _store ivar may be set to nil before the code in the
+ so-called "worker block" runs.  That code will presume that this must be a new
+ document, and the resulting attempt to create new package directories will
+ fail because that code (wisely, to prevent data on disk from being
+ overwritten) passes withIntermediateDirectories:NO when invoking NSFileManager
+ to do these creations.
+ 
+ This mechanism is obviously important if we are, as we do by default, use
+ asynchronous saving (see -canAsynchronouslyWriteToURL::), because the error
+ will probably occur every time.  But it is also important (maybe even more
+ important) otherwise, because in macOS 10.7+, -[NSDocument saveDocument:]
+ always returns immediately, even if a subclass has opted *out* of asynchronous
+ saving.  Saving is in fact merely "less asynchronous", and the error will
+ occur only *sometimes*.
+ */
+
+- (void)close
+{
+    if (self.isSaving) {
+        self.shouldCloseWhenDoneSaving = YES;
+    }
+    else
+    {
+        [self closeNow];
+    }
+}
+
+- (void)signalDoneAndMaybeClose
+{
+    self.isSaving = NO;
+
+    if (self.shouldCloseWhenDoneSaving)
+    {
+        [self closeNow];
+
+        /* The following probably has no effect, but is for good practice. */
+        self.shouldCloseWhenDoneSaving = NO;
+    }
+}
+
+- (void)closeNow
 {
     NSError *error = nil;
     if (![self removePersistentStoreWithError:&error])
@@ -345,6 +410,7 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
     [super dealloc];
 }
 #endif
+
 
 #pragma mark Reading Document Data
 
@@ -462,6 +528,7 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
     if (!additionalContent)
     {
         if (outError) NSAssert(*outError != nil, @"-additionalContentForURL:saveOperation:error: failed with a nil error");
+        [self signalDoneAndMaybeClose];
         return nil;
     }
     
@@ -493,6 +560,7 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
     }
     if (!ok)
     {
+        [self signalDoneAndMaybeClose];
         return nil;
     }
     
@@ -511,18 +579,39 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
                                         forSaveOperation:saveOperation
                                      originalContentsURL:originalContentsURL
                                                    error:error];
-            if (!result) return NO;
+            [self spliceErrorWithCode:478206
+                 localizedDescription:@"Failed creating package directories"
+                        likelyCulprit:url
+                         intoOutError:error];
+            if (!result)
+            {
+                [self signalDoneAndMaybeClose];
+                return NO;
+            }
             
             result = [self configurePersistentStoreCoordinatorForURL:storeURL
                                                               ofType:typeName
                                                                error:error];
-            if (!result) return NO;
+            [self spliceErrorWithCode:478207
+                 localizedDescription:@"Failed to configure PSC"
+                        likelyCulprit:storeURL
+                         intoOutError:error];
+            if (!result)
+            {
+                [self signalDoneAndMaybeClose];
+                return NO;
+            }
         }
         else if (saveOperation == NSSaveAsOperation)
         {
             // Copy the whole package to the new location, not just the store content
             if (![self writeBackupToURL:url error:error])
             {
+                [self spliceErrorWithCode:478208
+                     localizedDescription:@"Failed writing backup file"
+                            likelyCulprit:url
+                             intoOutError:error];
+                [self signalDoneAndMaybeClose];
                 return NO;
             }
         }
@@ -554,29 +643,70 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
                                                                                   appropriateForURL:fileURL
                                                                                              create:YES
                                                                                               error:error];
-                            if (!autosaveTempDirectory) return NO;
+                            if (!autosaveTempDirectory) {
+                                [self spliceErrorWithCode:478210
+                                     localizedDescription:@"Failed getting IRD"
+                                            likelyCulprit:fileURL
+                                             intoOutError:error];
+                                [self signalDoneAndMaybeClose];
+                                return NO;
+                            }
                             self.autosavedContentsTempDirectoryURL = autosaveTempDirectory;
                             
                             autosaveURL = [autosaveTempDirectory URLByAppendingPathComponent:fileURL.lastPathComponent];
-                            if (![self writeBackupToURL:autosaveURL error:error]) return NO;
+                            if (![self writeBackupToURL:autosaveURL error:error])
+                            {
+                                [self spliceErrorWithCode:478211
+                                     localizedDescription:@"Failed writing to backup URL"
+                                            likelyCulprit:autosaveURL
+                                             intoOutError:error];
+                                [self signalDoneAndMaybeClose];
+                                return NO;
+                            }
                             
                             self.autosavedContentsFileURL = autosaveURL;
                         }
                         
                         // Bring the autosaved doc up-to-date
-                        result = [self writeStoreContentToURL:[self.class persistentStoreURLForDocumentURL:autosaveURL]
+                        NSURL* storeURL = [self.class persistentStoreURLForDocumentURL:autosaveURL];
+                        result = [self writeStoreContentToURL:storeURL
                                                         error:error];
-                        if (!result) return NO;
+                        if (!result)
+                        {
+                            [self spliceErrorWithCode:478212
+                                 localizedDescription:@"Failed writing store content"
+                                        likelyCulprit:storeURL
+                                         intoOutError:error];
+                            [self signalDoneAndMaybeClose];
+                            return NO;
+                        }
                         
                         result = [self writeAdditionalContent:additionalContent
                                                         toURL:autosaveURL
                                           originalContentsURL:originalContentsURL
                                                         error:error];
-                        if (!result) return NO;
+                        if (!result)
+                        {
+                            [self spliceErrorWithCode:478213
+                                 localizedDescription:@"Failed writing additional content"
+                                        likelyCulprit:autosaveURL
+                                         intoOutError:error];
+                            [self signalDoneAndMaybeClose];
+                            return NO;
+                        }
                         
                         
                         // Then copy that across to the final URL
-                        return [self writeBackupToURL:url error:error];
+                        result = [self writeBackupToURL:url error:error];
+                        if (!result)
+                        {
+                            [self spliceErrorWithCode:478214
+                                 localizedDescription:@"Failed copying to final URL"
+                                        likelyCulprit:url
+                                         intoOutError:error];
+                            [self signalDoneAndMaybeClose];
+                            return NO;
+                        }
                     }
                 }
             }
@@ -591,34 +721,62 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
                                                     forSaveOperation:saveOperation
                                                  originalContentsURL:originalContentsURL
                                                                error:error];
-                        if (!result) return NO;
-                        
+                        if (!result)
+                        {
+                            [self spliceErrorWithCode:478215
+                                 localizedDescription:@"Failed creating package directories for non-regular save"
+                                        likelyCulprit:url
+                                         intoOutError:error];
+                            [self signalDoneAndMaybeClose];
+                            return NO;
+                        }
+
                         // Fake a placeholder file ready for the store to save over
-                        if (![[NSData data] writeToURL:storeURL options:0 error:error]) return NO;
+                        result = [[NSData data] writeToURL:storeURL options:0 error:error];
+                        if (!result)
+                        {
+                            [self spliceErrorWithCode:478216
+                                 localizedDescription:@"Failed faking placeholder"
+                                        likelyCulprit:storeURL
+                                         intoOutError:error];
+                            [self signalDoneAndMaybeClose];
+                            return NO;
+                        }
                     }
                 }
             }
         }
         
-        
         // Right, let's get on with it!
-        if (![self writeStoreContentToURL:storeURL error:error]) return NO;
+        if (![self writeStoreContentToURL:storeURL error:error])
+        {
+            [self signalDoneAndMaybeClose];
+            return NO;
+        }
         
-            result = [self writeAdditionalContent:additionalContent toURL:url originalContentsURL:originalContentsURL error:error];
-            
-            if (result)
+        result = [self writeAdditionalContent:additionalContent toURL:url originalContentsURL:originalContentsURL error:error];
+        
+        if (result)
+        {
+            // Update package's mod date. Two circumstances where this is needed:
+            //  user requests a save when there's no changes; SQLite store doesn't bother to touch the disk in which case
+            //  saving where +storeContentName is non-nil; that folder's mod date updates, but the overall package needs prompting
+            // Seems simplest to just apply this logic all the time
+            NSError *error;
+            if (![url setResourceValue:[NSDate date] forKey:NSURLContentModificationDateKey error:&error])
             {
-                // Update package's mod date. Two circumstances where this is needed:
-                //  user requests a save when there's no changes; SQLite store doesn't bother to touch the disk in which case
-                //  saving where +storeContentName is non-nil; that folder's mod date updates, but the overall package needs prompting
-                // Seems simplest to just apply this logic all the time
-                NSError *error;
-                if (![url setResourceValue:[NSDate date] forKey:NSURLContentModificationDateKey error:&error])
-                {
-                    NSLog(@"Updating package mod date failed: %@", error);  // not critical, so just log it
-                }
+                NSLog(@"Updating package mod date failed: %@", error);  // not critical, so just log it
             }
-        
+        }
+        else
+        {
+            [self spliceErrorWithCode:478217
+                 localizedDescription:@"Failed to get on with writing"
+                        likelyCulprit:url
+                         intoOutError:error];
+            /// ??? [self signalDoneAndMaybeClose];
+            /// ??? return NO;
+        }
         
         // Restore persistent store URL after Save To-type operations. Even if save failed (just to be on the safe side)
         if (saveOperation == NSSaveToOperation)
@@ -629,7 +787,7 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
             }
         }
         
-        
+        [self signalDoneAndMaybeClose];
         return result;
     };
     
@@ -658,18 +816,27 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
     NSFileManager *fileManager = [NSFileManager defaultManager];
     if ([fileManager respondsToSelector:
         @selector(createDirectoryAtURL:withIntermediateDirectories:attributes:error:)]) {
+        // macOS 10.7 or later
         result = [fileManager createDirectoryAtURL:url
                        withIntermediateDirectories:NO
                                         attributes:attributes
                                              error:error];
     } else {
+        // macOS 10.6 or earlier
         result = [fileManager createDirectoryAtPath:[url path]
                         withIntermediateDirectories:NO
                                          attributes:attributes
                                               error:error];
     }
-    if (!result) return NO;
-    
+    if (!result)
+    {
+        [self spliceErrorWithCode:478217
+             localizedDescription:@"File Manager failed to create package directory"
+                    likelyCulprit:url
+                     intoOutError:error];
+        return NO;
+    }
+
     // Create store content folder too
     NSString *storeContent = self.class.storeContentName;
     if (storeContent)
@@ -689,7 +856,14 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
                                                   error:error];
         }
 
-        if (!result) return NO;
+        if (!result)
+        {
+            [self spliceErrorWithCode:478218
+                 localizedDescription:@"File Manager failed to create store content subdirectory"
+                        likelyCulprit:storeContentURL
+                         intoOutError:error];
+            return NO;
+        }
     }
     
     // Set the bundle bit for good measure, so that docs won't appear as folders on Macs without your app installed. Don't care if it fails
@@ -854,29 +1028,32 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
 
 - (BOOL)spliceErrorWithCode:(NSInteger)code
        localizedDescription:(NSString*)localizedDescription
+              likelyCulprit:(id)likelyCulprit
                intoOutError:(NSError**)outError
 {
-    NSMutableDictionary *mutant = [NSMutableDictionary new];
-    [mutant setObject:localizedDescription
-               forKey:NSLocalizedDescriptionKey];
-    if (*outError)
-    {
-        [mutant setObject:*outError
-                   forKey:NSUnderlyingErrorKey];
-    }
-    NSDictionary *userInfo = [mutant copy];
-    NSError* overlyingError = [NSError errorWithDomain:BSManagedDocumentErrorDomain
-                                                  code:code
-                                              userInfo:userInfo];
     if (outError)
     {
+        NSMutableDictionary *mutant = [NSMutableDictionary new];
+        [mutant setObject:localizedDescription
+                   forKey:NSLocalizedDescriptionKey];
+        if (*outError)
+        {
+            [mutant setObject:*outError
+                       forKey:NSUnderlyingErrorKey];
+            [mutant setValue:likelyCulprit
+                      forKey:@"Likely Culprit"];
+        }
+        NSDictionary *userInfo = [mutant copy];
+        NSError* overlyingError = [NSError errorWithDomain:BSManagedDocumentErrorDomain
+                                                      code:code
+                                                  userInfo:userInfo];
         *outError = overlyingError;
-    }
 #if ! __has_feature(objc_arc)
         [mutant release];
         [userInfo release];
 #endif
-
+    }
+    
     return YES;  // Silence stupid compiler warning
 }
 
@@ -925,28 +1102,34 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
 							NSLog(@"Unable to cleanup after failed backup: %@", error);
 						}
 						
-						return NO;
+                        [self spliceErrorWithCode:478201
+                             localizedDescription:@"Failed writing backup prior to writing"
+                                    likelyCulprit:backupURL
+                                     intoOutError:outError];
+
+                        return NO;
 					}
-                    [self spliceErrorWithCode:478201
-                         localizedDescription:@"Failed writing backup prior to writing"
-                                 intoOutError:outError];
 				}
 			}
 			
 			
             // NSDocument attempts to write a copy of the document out at a temporary location.
             // Core Data cannot support this, so we override it to save directly.
+            // The following call is synchronous.  It does not return until
+            // saving ia all done
             result = [self writeToURL:absoluteURL
                                ofType:typeName
                      forSaveOperation:saveOperation
                   originalContentsURL:[self fileURL]
                                 error:outError];
-            [self spliceErrorWithCode:478202
-                 localizedDescription:@"Failed regular writing"
-                         intoOutError:outError];
             
             if (!result)
             {
+                [self spliceErrorWithCode:478202
+                     localizedDescription:@"Failed regular writing"
+                            likelyCulprit:absoluteURL
+                             intoOutError:outError];
+
                 // Clean up backup if one was made
                 // If the failure was actualy NSUserCancelledError thanks to
                 // autosaving being implicitly cancellable and a subclass deciding
@@ -985,6 +1168,7 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
                                    error:outError];
         [self spliceErrorWithCode:478203
              localizedDescription:@"Failed other writing"
+                    likelyCulprit:absoluteURL
                      intoOutError:outError];
     }
     
@@ -1038,16 +1222,17 @@ originalContentsURL:(NSURL *)originalContentsURL
 		_contents = [self contentsForURL:inURL ofType:typeName saveOperation:saveOp error:outError];
         [self spliceErrorWithCode:478204
              localizedDescription:@"Failed getting _contents"
+                    likelyCulprit:inURL
                      intoOutError:outError];
         if (!_contents) return NO;
         
         // Worried that _contents hasn't been retained? Never fear, we'll set it straight back to nil before exiting this method, I promise
         
-        
         // And now we're ready to write for real
         BOOL result = [self writeToURL:inURL ofType:typeName forSaveOperation:saveOp originalContentsURL:originalContentsURL error:outError];
         [self spliceErrorWithCode:478205
              localizedDescription:@"Failed writing for real"
+                     likelyCulprit:inURL
                      intoOutError:outError];
         
         // Finish up. Don't worry, _additionalContent was never retained on this codepath, so doesn't need to be released
@@ -1055,9 +1240,8 @@ originalContentsURL:(NSURL *)originalContentsURL
         return result;
     }
     
-    
-    // We implement contents as a block which is called to perform the writing
     BOOL (^contentsBlock)(NSURL *, NSSaveOperationType, NSURL *, NSError**) = _contents;
+    // The following invocation of contentsBlock does the actual work of saving
     return contentsBlock(inURL, saveOp, originalContentsURL, outError);
 }
 
@@ -1244,6 +1428,12 @@ originalContentsURL:(NSURL *)originalContentsURL
     }
 }
 
+- (IBAction)saveDocument:(id)sender {
+    self.isSaving = YES;
+    [super saveDocument:sender];
+}
+
+
 #pragma mark Reverting Documents
 
 - (BOOL)revertToContentsOfURL:(NSURL *)absoluteURL ofType:(NSString *)typeName error:(NSError **)outError;
@@ -1382,7 +1572,11 @@ originalContentsURL:(NSURL *)originalContentsURL
     return result;
 }
 
-// See note JK20170624 at end of file
+- (IBAction)saveDocumentAs:(id)sender {
+    self.isSaving = YES;
+    [super saveDocumentAs:sender];
+}
+
 
 #pragma mark Error Presentation
 
