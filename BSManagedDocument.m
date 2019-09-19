@@ -163,6 +163,7 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
     // Need 10.7+ to support parent context
     if ([context respondsToSelector:@selector(setParentContext:)])
     {
+        // macOS 10.7 or later
         [context performBlockAndWait:setUndoManagerBlock];
          
         NSManagedObjectContext *parentContext = [[self.class.managedObjectContextClass alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
@@ -177,6 +178,7 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
     }
     else
     {
+        // macOS 10.6 or earlier
         setUndoManagerBlock();
         context.persistentStoreCoordinator = _coordinator;
     }
@@ -232,8 +234,13 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
     // load, resulting in a deadlock. So we create the coordinator now and add it to
     // the context later, when we know we have access to the main thread.
     if (!_coordinator)
+    {
+        /* I don't know when this branch ever runs.  In all my testing,
+         _coordinator is created within -setManagedObjectContext:.
+         I have never seen this branch run. */
         _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self managedObjectModel]];
-
+    }
+    
     void (^addPersistentStoreBlock)(void) = ^{
         _store = [_coordinator addPersistentStoreWithType:[self persistentStoreTypeForFileType:fileType]
                                             configuration:configuration

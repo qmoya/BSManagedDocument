@@ -21,7 +21,7 @@
 //
 //  *   Saves to a file package
 //
-//  *   On 10.7+, asynchronous saving is supported. We set up a parent/child pair of contexts; the parent saves on its own thread.  (Note that, even as late as macOS 10.15 in September 2019, NSPersistendDocument still does *not* support asynchronous saving.  (See Apple documentation > AppKit > NSPersistentDocument > Overview > Important.
+//  *   On 10.7+, asynchronous saving is supported. We insert a parent context between the persistent store coordinator and the     "main" managed object context (the one with main queue concurrency type that is returned by -managedObjectContext).  The parent context is of private queue concurrency type and therefore saves on its own thread.  (Note that, even as late as macOS 10.15 in September 2019, NSPersistendDocument still does *not* support asynchronous saving.  (See Apple documentation > AppKit > NSPersistentDocument > Overview > Important.
 //
 //  *   Full support for concurrent document opening too
 //
@@ -139,9 +139,9 @@ __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
  Persistent documents always have a managed object context and a persistent
  store coordinator through that context.
  
- A default context is created on-demand. You can call `-setManagedObjectContext:`
- to substitute your own context instead. This will automatically supply a
- persistence stack for the context and uses its undo manager.
+ A default context is created on-demand. You can call
+ `-setManagedObjectContext:` to substitute your own context instead. This will
+ automatically supply a persistence stack for the context.
  */
 @property (nonatomic, strong) NSManagedObjectContext *managedObjectContext;
 
