@@ -258,10 +258,67 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
     // on the assumption it's posted on the main thread. That could do some very weird things, so
     // let's make sure the notification is actually posted on the main thread.
     // Also seems to fix the deadlock in https://github.com/karelia/BSManagedDocument/issues/36
-    if ([_coordinator respondsToSelector:@selector(performBlockAndWait:)]) {
-        // 10.10 and later
-        [_coordinator performBlockAndWait:addPersistentStoreBlock];
-    } else if ([_managedObjectContext respondsToSelector:@selector(performBlockAndWait:)]) {
+    
+    /* Comment by Jerry 2019-09-18:  Until today, the code below used
+     [_coordinator performBlockAndWait:] if available, which it is in macOS
+     10.10 or later.  That caused a problem in macOS 10.15 Beta 8,
+     after opting in to asynchronous saving.  I'm not sure which of these two
+     factors is responsible, but since I've already done a lot of testing with
+     opting in to asynchronous saving, I want to leave it on.
+     
+     The problem is that sometimes during an auto save, and always, after
+     creating a new adocument and saving it for the first time,
+     For some reason, when Core Data Concurency Debugging on, I get the famous
+     __Multithreading_Violation_AllThatIsLeftToUsIsHonor_ assertion whenver
+     a new document is first saved, and one time I saw it when autosaving an
+     already open document.  This assertion occurs inside the
+     addPersistentStoreBlock above, upon addPersistentStoreWithType:::::.
+     Of course, it does not make any sense that this could happen within a
+     performBlockAndWait: call, because that is the whole purpose of
+     performBlockAndWait:, to prevent these multithreading violations.
+     In this class, the psc and the parent moc can and usually do operate in
+     different non-main queues when you send -performBlock: or
+     -performBlockAndWait:).  I thought that might be the problem, so I tried
+     forcing the psc and the parent moc to operate in the same queue, by
+     creating the psc within a performBlockAndWait: sent to the parent moc.
+     (See debugging code below in this comment.)  It worked as intended,  but
+     had no effect on the problem.
+     
+     Of course it is possible that the multithreading assertion is a false
+     alarm, a bug in 10.15 Beta 8, but I do not want to assume that.
+     
+     The only way I found to fix the problem, implemented below, is to comment
+     out the code branch for macOS 10.10 and later, which uses
+     -[NSPersistentStoreCoordinator performBlockAndWait:], and instead execute
+     the branch for 10.7 - 10.9, which uses instead
+     -[NSManagedObjectContext performBlockAndWait:].  Because I need to ship
+     this now, I'm leaving it like that at this time.
+     
+     Maybe I shall revisit this after 10.15 is out of beta. Here is debugging
+     code one can use to log the operating queue of the psc and each of the two
+     mocs:
+     
+     __block NSObject* whatever = nil;
+     void (^logTheQueueBlock)(void) = ^void(void){
+         NSLog(@"Operating thread is %@ %p for %@", [NSThread isMainThread] ? @"main" : @"non-main", [NSThread currentThread], whatever) ;
+     };
+     whatever = _coordinator;
+     [_coordinator performBlockAndWait:logTheQueueBlock];
+     whatever = _managedObjectContext.parentContext;
+     [_managedObjectContext.parentContext performBlockAndWait:logTheQueueBlock];
+     whatever = _managedObjectContext;
+     [_managedObjectContext performBlockAndWait:logTheQueueBlock];
+     
+     Here is another line of debugging code which is handy:
+     
+     NSLog(@"1 Created moc %p with NSMainQueueConcurrencyType on %@ thread %p", context, [NSThread isMainThread] ? @"main" : @"secondary", [NSThread currentThread]) ;
+     
+     And now, the fix… */
+//    if ([_coordinator respondsToSelector:@selector(performBlockAndWait:)]) {
+//        // 10.10 and later
+//        [_coordinator performBlockAndWait:addPersistentStoreBlock];
+//    } else
+    if ([_managedObjectContext respondsToSelector:@selector(performBlockAndWait:)]) {
         // On 10.7 - 10.9, use the context's performBlockAndWait: - BUT ONLY IF THE CONTEXT
         // ALREADY EXISTS. Creating a context on this thread (which self.managedObjectContext
         // will do) can result in a deadlock with the Version Browser.
