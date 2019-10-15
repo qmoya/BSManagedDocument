@@ -44,16 +44,16 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
 + (NSString *)storePathForDocumentPath:(NSString*)path
 {
     BOOL isDirectory = YES;
-    [[NSFileManager defaultManager] fileExistsAtPath:path
-                                         isDirectory:&isDirectory];
+    [NSFileManager.defaultManager fileExistsAtPath:path
+                                       isDirectory:&isDirectory];
     /* I added the initialization YES on 20180114 after seeing a runtime
      warning here, sayig that isDirectory had a "Load of value -96,
      which is not a valid value for type 'BOOL' (aka 'signed char')". */
     if (isDirectory)
     {
         /* path is a file package. */
-        path = [path stringByAppendingPathComponent:[BSManagedDocument storeContentName]];
-        path = [path stringByAppendingPathComponent:[BSManagedDocument persistentStoreName]];
+        path = [path stringByAppendingPathComponent:self.storeContentName];
+        path = [path stringByAppendingPathComponent:self.persistentStoreName];
     }
 
     return path;
@@ -63,15 +63,15 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
                      documentExtension:(NSString*)extension
 {
     NSString* answer = nil;
-    if ([[path pathExtension] isEqualToString:extension])
+    if ([path.pathExtension isEqualToString:extension])
     {
         answer = path;
     }
-    else if ([[path lastPathComponent] isEqualToString:[self persistentStoreName]]) {
-        path = [path stringByDeletingLastPathComponent];
-        if ([[path lastPathComponent] isEqualToString:[self storeContentName]]) {
-            path = [path stringByDeletingLastPathComponent];
-            if ([[path pathExtension] isEqualToString:extension]) {
+    else if ([path.lastPathComponent isEqualToString:self.persistentStoreName]) {
+        path = path.stringByDeletingLastPathComponent;
+        if ([path.lastPathComponent isEqualToString:self.storeContentName]) {
+            path = path.stringByDeletingLastPathComponent;
+            if ([path.pathExtension isEqualToString:extension]) {
                 answer = path;
             }
         }
@@ -83,10 +83,10 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
 
 + (NSURL *)persistentStoreURLForDocumentURL:(NSURL *)fileURL;
 {
-    NSString *storeContent = [self storeContentName];
+    NSString *storeContent = self.storeContentName;
     if (storeContent) fileURL = [fileURL URLByAppendingPathComponent:storeContent];
     
-    fileURL = [fileURL URLByAppendingPathComponent:[self persistentStoreName]];
+    fileURL = [fileURL URLByAppendingPathComponent:self.persistentStoreName];
     return fileURL;
 }
 
@@ -103,7 +103,7 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
         else
         {
             // On 10.6, context MUST be created on the thread/queue that's going to use it
-            if ([NSThread isMainThread])
+            if (NSThread.isMainThread)
             {
                 context = [[self.class.managedObjectContextClass alloc] init];
             }
@@ -128,7 +128,7 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
 {
     // Setup the rest of the stack for the context
     if (!_coordinator)
-        _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self managedObjectModel]];
+        _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:self.managedObjectModel];
     
     if (self.hasUndoManager)
     {
@@ -144,14 +144,14 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
          https://github.com/karelia/BSManagedDocument/issues/50
          In either case, this may be not what the developer has specified
          in overriding +undoManagerClass.  So we test… */
-        if (context.undoManager.class != [[self class] undoManagerClass])
+        if (context.undoManager.class != self.class.undoManagerClass)
         {
             /* This branch will always execute, *except* in two *edge* cases:
              * Edge Case 1: macOS 10.11 or earlier, and +undoManagerClass is
              overridden to return NSUndoManager, or not overridden.
              * Edge Case 2: macOS 10.12 or later, and +undoManagerClass is
              overridden to return nil. */
-            NSUndoManager *undoManager = [[[[self class] undoManagerClass] alloc] init];
+            NSUndoManager *undoManager = [[self.class.undoManagerClass alloc] init];
             context.undoManager = undoManager;  // may rightfully be nil
 #if !__has_feature(objc_arc)
             [undoManager release];
@@ -170,7 +170,7 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
         parentContext.undoManager = nil; // no point in it supporting undo
         parentContext.persistentStoreCoordinator = _coordinator;
         
-        [context setParentContext:parentContext];
+        context.parentContext = parentContext;
 
 #if !__has_feature(objc_arc)
         [parentContext release];
@@ -201,7 +201,7 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
 {
     if (!_managedObjectModel)
     {
-        _managedObjectModel = [NSManagedObjectModel mergedModelFromBundles:[NSArray arrayWithObject:[NSBundle mainBundle]]];
+        _managedObjectModel = [NSManagedObjectModel mergedModelFromBundles:@[NSBundle.mainBundle]];
 
 #if ! __has_feature(objc_arc)
         [_managedObjectModel retain];
@@ -214,7 +214,7 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
 - (BOOL)configurePersistentStoreCoordinatorForURL:(NSURL *)storeURL
                                            ofType:(NSString *)fileType
                                modelConfiguration:(NSString *)configuration
-                                     storeOptions:(NSDictionary *)storeOptions
+                                     storeOptions:(NSDictionary<NSString *,id> *)storeOptions
                                             error:(NSError **)error_p
 {
     /* I was getting a crash on launch, in OS X 10.11, when previously-opened
@@ -238,7 +238,7 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
         /* I don't know when this branch ever runs.  In all my testing,
          _coordinator is created within -setManagedObjectContext:.
          I have never seen this branch run. */
-        _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self managedObjectModel]];
+        _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:self.managedObjectModel];
     }
     
     void (^addPersistentStoreBlock)(void) = ^{
@@ -344,9 +344,9 @@ NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
                                             error:(NSError **)error
 {
     // On 10.8+, the coordinator whinges but doesn't fail if you leave out NSReadOnlyPersistentStoreOption and the file turns out to be read-only. Supplying a value makes it fail with a (not very helpful) error when the store is read-only
-    BOOL readonly = ([self respondsToSelector:@selector(isInViewingMode)] && [self isInViewingMode]);
+    BOOL readonly = ([self respondsToSelector:@selector(isInViewingMode)] && self.isInViewingMode);
     
-    NSDictionary *options = @{
+    NSDictionary<NSString *,id> *options = @{
                               // For apps linked against 10.9+ and supporting 10.6 still, use the old
                               // style journal. Since the journal lives alongside the persistent store
                               // I figure there's a chance it could be copied from a new Mac to an old one
@@ -539,7 +539,7 @@ operation is completed.
     // If have already read, then this is a revert-type affair, so must reload data from disk
     if (_store)
     {
-        if (!([NSThread isMainThread])) {
+        if (!NSThread.isMainThread) {
             [NSException raise:NSInternalInconsistencyException format:@"%@: I didn't anticipate reverting on a background thread!", NSStringFromSelector(_cmd)];
         }
         
@@ -877,7 +877,7 @@ operation is completed.
     if (!attributes) return NO;
     
     BOOL result = NO;
-    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSFileManager *fileManager = NSFileManager.defaultManager;
     if ([fileManager respondsToSelector:
         @selector(createDirectoryAtURL:withIntermediateDirectories:attributes:error:)]) {
         // macOS 10.7 or later
@@ -887,7 +887,7 @@ operation is completed.
                                              error:error];
     } else {
         // macOS 10.6 or earlier
-        result = [fileManager createDirectoryAtPath:[url path]
+        result = [fileManager createDirectoryAtPath:url.path
                         withIntermediateDirectories:NO
                                          attributes:attributes
                                               error:error];
@@ -914,7 +914,7 @@ operation is completed.
                                              attributes:attributes
                                                   error:error];
         } else {
-            result = [fileManager createDirectoryAtPath:[storeContentURL path]
+            result = [fileManager createDirectoryAtPath:storeContentURL.path
                             withIntermediateDirectories:NO
                                              attributes:attributes
                                                   error:error];
@@ -956,7 +956,7 @@ operation is completed.
             // Stash contents temporarily into an ivar so -writeToURL:… can access it from the worker thread
             _contents = [self contentsForURL:url ofType:typeName saveOperation:saveOperation error:&shouldAbortError];
 
-            BOOL notLoaded = [[[NSDocumentController sharedDocumentController] documents] indexOfObject:self] == NSNotFound;
+            BOOL notLoaded = [NSDocumentController.sharedDocumentController.documents indexOfObject:self] == NSNotFound;
             if (notLoaded) {
                 NSLog(@"Warning 382-6734 Aborting save cuz not loaded: %@", self);
                 /* I have seen this occur if a document save is attempted during
@@ -1009,7 +1009,7 @@ operation is completed.
 #endif
         
         if (shouldAbortError) {
-            if ([NSThread isMainThread])
+            if (NSThread.isMainThread)
             {
                 fileAccessCompletionHandler();
                 if (completionHandler) completionHandler(shouldAbortError);
@@ -1037,7 +1037,7 @@ operation is completed.
 			// it runs after the end of the current one. Unfortunately there's no guarantee anyone's been
             // thoughtful enough to register this as an activity (autosave, I'm looking at you), so only rely
             // on it if there actually is a recoverable error
-			if ([error recoveryAttempter])
+			if (error.recoveryAttempter)
             {
                 [self performActivityWithSynchronousWaiting:NO usingBlock:^(void (^activityCompletionHandler)(void)) {
                     
@@ -1109,17 +1109,14 @@ operation is completed.
 {
     if (outError)
     {
-        NSMutableDictionary *mutant = [NSMutableDictionary new];
-        [mutant setObject:localizedDescription
-                   forKey:NSLocalizedDescriptionKey];
+        NSMutableDictionary<NSErrorUserInfoKey, id> *mutant = [NSMutableDictionary new];
+        mutant[NSLocalizedDescriptionKey] = localizedDescription;
         if (*outError)
         {
-            [mutant setObject:*outError
-                       forKey:NSUnderlyingErrorKey];
-            [mutant setValue:likelyCulprit
-                      forKey:@"Likely Culprit"];
+            mutant[NSUnderlyingErrorKey] = *outError;
+            mutant[@"Likely Culprit"] = likelyCulprit;
         }
-        NSDictionary *userInfo = [mutant copy];
+        NSDictionary<NSErrorUserInfoKey, id> *userInfo = [mutant copy];
         NSError* overlyingError = [NSError errorWithDomain:BSManagedDocumentErrorDomain
                                                       code:code
                                                   userInfo:userInfo];
@@ -1155,7 +1152,7 @@ operation is completed.
 		
 		
         if (saveOperation == NSSaveOperation || saveOperation == NSAutosaveInPlaceOperation ||
-            (saveOperation == NSAutosaveElsewhereOperation && [absoluteURL isEqual:[self autosavedContentsFileURL]]))
+            (saveOperation == NSAutosaveElsewhereOperation && [absoluteURL isEqual:self.autosavedContentsFileURL]))
         {
             NSURL *backupURL = nil;
             
@@ -1164,16 +1161,16 @@ operation is completed.
 			if (NSAppKitVersionNumber >= 1187 &&
 				[self respondsToSelector:@selector(backupFileURL)] &&
 				(saveOperation == NSSaveOperation || saveOperation == NSAutosaveInPlaceOperation) &&
-				[[self class] preservesVersions])			// otherwise backupURL has a different meaning
+				self.class.preservesVersions)			// otherwise backupURL has a different meaning
 			{
-				backupURL = [self backupFileURL];
+				backupURL = self.backupFileURL;
 				if (backupURL)
 				{
 					if (![self writeBackupToURL:backupURL error:outError])
 					{
 						// If backup fails, seems it's our responsibility to clean up
 						NSError *error;
-						if (![[NSFileManager defaultManager] removeItemAtURL:backupURL error:&error])
+						if (![NSFileManager.defaultManager removeItemAtURL:backupURL error:&error])
 						{
 							NSLog(@"Unable to cleanup after failed backup: %@", error);
 						}
@@ -1196,7 +1193,7 @@ operation is completed.
             result = [self writeToURL:absoluteURL
                                ofType:typeName
                      forSaveOperation:saveOperation
-                  originalContentsURL:[self fileURL]
+                  originalContentsURL:self.fileURL
                                 error:outError];
             
             if (!result)
@@ -1214,7 +1211,7 @@ operation is completed.
                 if (backupURL)
                 {
                     NSError *error;
-                    if (![[NSFileManager defaultManager] removeItemAtURL:backupURL error:&error])
+                    if (![NSFileManager.defaultManager removeItemAtURL:backupURL error:&error])
                     {
                         NSLog(@"Unable to remove backup after failed write: %@", error);
                     }
@@ -1227,7 +1224,7 @@ operation is completed.
                 {
                     if (modDate)    // some file systems don't support mod date
                     {
-                        [self setFileModificationDate:modDate];
+                        self.fileModificationDate = modDate;
                     }
                 }
             }
@@ -1252,9 +1249,9 @@ operation is completed.
         NSNotification* note = [[NSNotification alloc] initWithName:BSManagedDocumentDidSaveNotification
                                                              object:self
                                                            userInfo:nil] ;
-        [[NSNotificationCenter defaultCenter] performSelectorOnMainThread:@selector(postNotification:)
-                                                               withObject:note
-                                                            waitUntilDone:NO] ;
+        [NSNotificationCenter.defaultCenter performSelectorOnMainThread:@selector(postNotification:)
+                                                             withObject:note
+                                                          waitUntilDone:NO] ;
 #if ! __has_feature(objc_arc)
         [note release];
 #endif
@@ -1275,7 +1272,7 @@ operation is completed.
 	if (source)
     {
         /* The following also copies any additional content in the package. */
-        ok = [[NSFileManager defaultManager] copyItemAtURL:source toURL:backupURL error:outError];
+        ok = [NSFileManager.defaultManager copyItemAtURL:source toURL:backupURL error:outError];
     }
     else
     {
@@ -1357,12 +1354,12 @@ originalContentsURL:(NSURL *)originalContentsURL
     
     
     // On 10.6 saving is just one call, all on main thread. 10.7+ have to work on the context's private queue
-    NSManagedObjectContext *context = [self managedObjectContext];
+    NSManagedObjectContext *context = self.managedObjectContext;
     
     if ([context respondsToSelector:@selector(parentContext)])
     {
         [self unblockUserInteraction];
-        result = [self preflightURL:storeURL thenSaveContext:[context parentContext] error:error];
+        result = [self preflightURL:storeURL thenSaveContext:context.parentContext error:error];
     }
     else
     {
@@ -1381,7 +1378,7 @@ originalContentsURL:(NSURL *)originalContentsURL
     if (![storeURL getResourceValue:&writable forKey:NSURLIsWritableKey error:error])
         return NO;
 #else
-    writable = @([[NSFileManager defaultManager] isWritableFileAtPath:[storeURL path]]);
+    writable = @([NSFileManager.defaultManager isWritableFileAtPath:storeURL.path]);
 #endif
     
     if (writable.boolValue)
@@ -1458,14 +1455,14 @@ originalContentsURL:(NSURL *)originalContentsURL
 /*  Enable autosave-in-place and versions browser on 10.7+
  */
 + (BOOL)autosavesInPlace { return [NSDocument respondsToSelector:_cmd]; }
-+ (BOOL)preservesVersions { return [self autosavesInPlace]; }
++ (BOOL)preservesVersions { return self.autosavesInPlace; }
 
 - (void)setAutosavedContentsFileURL:(NSURL *)absoluteURL;
 {
     [super setAutosavedContentsFileURL:absoluteURL];
     
     // Point the store towards the most recent known URL
-    absoluteURL = [self mostRecentlySavedFileURL];
+    absoluteURL = self.mostRecentlySavedFileURL;
     if (absoluteURL) [self setURLForPersistentStoreUsingFileURL:absoluteURL];
 }
 
@@ -1473,8 +1470,8 @@ originalContentsURL:(NSURL *)originalContentsURL
 {
     // Before the user chooses where to place a new document, it has an autosaved URL only
     // On 10.6-, autosaves save newer versions of the document *separate* from the original doc
-    NSURL *result = [self autosavedContentsFileURL];
-    if (!result) result = [self fileURL];
+    NSURL *result = self.autosavedContentsFileURL;
+    if (!result) result = self.fileURL;
     return result;
 }
 
@@ -1497,7 +1494,7 @@ originalContentsURL:(NSURL *)originalContentsURL
         self.autosavedContentsTempDirectoryURL = nil;
         
         NSError *error;
-        if (![[NSFileManager defaultManager] removeItemAtURL:autosaveTempDir error:&error])
+        if (![NSFileManager.defaultManager removeItemAtURL:autosaveTempDir error:&error])
         {
             NSLog(@"Unable to remove temporary directory: %@", error);
         }
@@ -1517,7 +1514,7 @@ originalContentsURL:(NSURL *)originalContentsURL
     // Tear down old windows. Wrap in an autorelease pool to get us much torn down before the reversion as we can
     @autoreleasepool
     {
-    NSArray *controllers = [[self windowControllers] copy]; // we're sometimes handed underlying mutable array. #156271
+    NSArray<NSWindowController *> *controllers = [self.windowControllers copy]; // we're sometimes handed underlying mutable array. #156271
     for (NSWindowController *aController in controllers)
     {
         [self removeWindowController:aController];
@@ -1664,19 +1661,19 @@ originalContentsURL:(NSURL *)originalContentsURL
 	NSError *result = nil;
     
     // customizations for NSCocoaErrorDomain
-	if ( [[inError domain] isEqualToString:NSCocoaErrorDomain] )
+	if ( [inError.domain isEqualToString:NSCocoaErrorDomain] )
 	{
-		NSInteger errorCode = [inError code];
+		NSInteger errorCode = inError.code;
 		
 		// is this a Core Data validation error?
 		if ( (NSValidationErrorMinimum <= errorCode) && (errorCode <= NSValidationErrorMaximum) )
 		{
 			// If there are multiple validation errors, inError will be a NSValidationMultipleErrorsError
 			// and all the validation errors will be in an array in the userInfo dictionary for key NSDetailedErrorsKey
-			NSArray *detailedErrors = [[inError userInfo] objectForKey:NSDetailedErrorsKey];
-			if ( detailedErrors != nil )
+			NSArray<NSError *> *detailedErrors = inError.userInfo[NSDetailedErrorsKey];
+			if (detailedErrors)
 			{
-				NSUInteger numErrors = [detailedErrors count];
+				NSUInteger numErrors = detailedErrors.count;
 				NSMutableString *errorString = [NSMutableString stringWithFormat:@"%lu validation errors have occurred.", (unsigned long)numErrors];
 				NSMutableString *secondary = [NSMutableString string];
 				if ( numErrors > 3 )
@@ -1687,14 +1684,14 @@ originalContentsURL:(NSURL *)originalContentsURL
 				NSUInteger i;
 				for ( i = 0; i < ((numErrors > 3) ? 3 : numErrors); i++ )
 				{
-					[secondary appendFormat:@"%@\n", [[detailedErrors objectAtIndex:i] localizedDescription]];
+					[secondary appendFormat:@"%@\n", detailedErrors[i].localizedDescription];
 				}
 				
-				NSMutableDictionary *userInfo = [NSMutableDictionary dictionaryWithDictionary:[inError userInfo]];
-				[userInfo setObject:errorString forKey:NSLocalizedDescriptionKey];
-				[userInfo setObject:secondary forKey:NSLocalizedRecoverySuggestionErrorKey];
+				NSMutableDictionary<NSErrorUserInfoKey, id> *userInfo = [NSMutableDictionary dictionaryWithDictionary:inError.userInfo];
+				userInfo[NSLocalizedDescriptionKey] = errorString;
+				userInfo[NSLocalizedRecoverySuggestionErrorKey]  = secondary;
                 
-				result = [NSError errorWithDomain:[inError domain] code:[inError code] userInfo:userInfo];
+				result = [NSError errorWithDomain:inError.domain code:inError.code userInfo:userInfo];
 			}
 		}
 	}

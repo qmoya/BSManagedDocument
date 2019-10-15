@@ -78,7 +78,7 @@ __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
  store will be saved directly inside the document package with no intermediate
  folder.
  */
-+ (NSString *)storeContentName;
+@property (nonatomic, class, readonly) NSString *storeContentName;
 
 /**
  @return The name for the persistent store file inside the document’s file package.
@@ -86,7 +86,7 @@ __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
  The default name is `persistentStore` to match `UIManagedDocument`. The store
  is nested inside the document within the `+storeContentName` folder.
  */
-+ (NSString *)persistentStoreName;
+@property (nonatomic, class, readonly) NSString *persistentStoreName;
 
 /**
  @brief    Given the path to a BSManagedDocument on disk, returns the path to
@@ -122,7 +122,7 @@ __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
  But a comment by Mike Abdullah in pre-2019 commits of the .m file implies
  that Karelia did this in their Sandvox app.
  */
-+ (Class)managedObjectContextClass;
+@property (nonatomic, class, readonly) Class managedObjectContextClass;
 
 /*!
  @brief    Returns the desired class of instances' undo manager
@@ -131,7 +131,7 @@ __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
  to specify that the receiver should not support undo.  The default
  implemenation returns NSUndoManager.
  */
-+ (Class)undoManagerClass;
+@property (nonatomic, class, readonly) Class undoManagerClass;
 
 /**
  The receiver's managed object context
