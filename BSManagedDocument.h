@@ -318,4 +318,10 @@ __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
  */
 - (BOOL)canAsynchronouslyWriteToURL:(NSURL *)url ofType:(NSString *)typeName forSaveOperation:(NSSaveOperationType)saveOperation;
 
+- (BOOL)createPackageDirectoriesAtURL:(NSURL *)url
+                               ofType:(NSString *)typeName
+                     forSaveOperation:(NSSaveOperationType)saveOperation
+                  originalContentsURL:(NSURL *)originalContentsURL
+                                error:(NSError **)error;
+
 @end
