@@ -744,11 +744,25 @@ operation is completed.
                             [self signalDoneAndMaybeClose];
                             return NO;
                         }
-                        
+#if DEBUG
+#define WATCHING_FOR_CRASH_IN_MACOS_10_15_1_BETA 1
+#endif
+#if WATCHING_FOR_CRASH_IN_MACOS_10_15_1_BETA
+                        NSLog(@"BSMD-Crash-Watch 1") ;
+                        NSLog(@"BSMD-Crash-Watch ac: %@", additionalContent) ;
+                        NSLog(@"BSMD-Crash-Watch url: %@", url) ;
+                        NSLog(@"BSMD-Crash-Watch originalContentsURL: %@", originalContentsURL) ;
+                        NSLog(@"BSMD-Crash-Watch error: %p", error) ;
+                        NSLog(@"BSMD-Crash-Watch *error: %p", *error) ;
+                        NSLog(@"BSMD-Crash-Watch really go 1") ;
+#endif
                         result = [self writeAdditionalContent:additionalContent
                                                         toURL:autosaveURL
                                           originalContentsURL:originalContentsURL
                                                         error:error];
+#if WATCHING_FOR_CRASH_IN_MACOS_10_15_1_BETA
+                        NSLog(@"BSMD-Crash-Watch went 1") ;
+#endif
                         if (!result)
                         {
                             [self spliceErrorWithCode:478213
@@ -818,8 +832,19 @@ operation is completed.
             return NO;
         }
         
+#if WATCHING_FOR_CRASH_IN_MACOS_10_15_1_BETA
+        NSLog(@"BSMD-Crash-Watch 2") ;
+        NSLog(@"BSMD-Crash-Watch ac: %@", additionalContent) ;
+        NSLog(@"BSMD-Crash-Watch url: %@", url) ;
+        NSLog(@"BSMD-Crash-Watch originalContentsURL: %@", originalContentsURL) ;
+        NSLog(@"BSMD-Crash-Watch error: %p", error) ;
+        NSLog(@"BSMD-Crash-Watch *error: %p", *error) ;
+        NSLog(@"BSMD-Crash-Watch really go 2") ;
+#endif
         result = [self writeAdditionalContent:additionalContent toURL:url originalContentsURL:originalContentsURL error:error];
-        
+#if WATCHING_FOR_CRASH_IN_MACOS_10_15_1_BETA
+        NSLog(@"BSMD-Crash-Watch went 2") ;
+#endif
         if (result)
         {
             // Update package's mod date. Two circumstances where this is needed:
