@@ -625,6 +625,12 @@ operation is completed.
     if (!ok)
     {
         [self signalDoneAndMaybeClose];
+        if (outError && !*outError)
+        {
+            *outError = [NSError errorWithDomain:BSManagedDocumentErrorDomain
+                                            code:478221
+                                        userInfo:@{ NSLocalizedDescriptionKey : @"Unspecified error saving Core Data MOC" }];
+        }
         return nil;
     }
     
@@ -863,8 +869,8 @@ operation is completed.
                  localizedDescription:@"Failed to get on with writing"
                         likelyCulprit:url
                          intoOutError:error];
-            /// ??? [self signalDoneAndMaybeClose];
-            /// ??? return NO;
+            [self signalDoneAndMaybeClose];
+            return NO;
         }
         
         // Restore persistent store URL after Save To-type operations. Even if save failed (just to be on the safe side)
@@ -919,7 +925,7 @@ operation is completed.
     }
     if (!result)
     {
-        [self spliceErrorWithCode:478217
+        [self spliceErrorWithCode:478219
              localizedDescription:@"File Manager failed to create package directory"
                     likelyCulprit:url
                      intoOutError:error];
