@@ -1626,6 +1626,15 @@ originalContentsURL:(NSURL *)originalContentsURL
 
 - (NSDocument *)duplicateAndReturnError:(NSError **)outError;
 {
+    if (outError) {
+        *outError = nil;
+    }
+    /* The above is needed to prevent a up-stack crash in
+     -spliceErrorWithCode:localizedDescription:likelyCulprit:intoOutError:
+     because, apparently macOS passes *outError = garbage (but, oddly, only
+     with ARC in macOS 10.15.)  Anyhow, initializing variables is always a
+     good practice!  */
+    
     // If the doc is brand new, have to force the autosave to write to disk
     if (!self.fileURL && !self.autosavedContentsFileURL && !self.hasUnautosavedChanges)
     {
@@ -1656,13 +1665,15 @@ originalContentsURL:(NSURL *)originalContentsURL
 /*  Approximates a synchronous version of -autosaveDocumentWithDelegate:didAutosaveSelector:contextInfo:    */
 - (BOOL)fakeSynchronousAutosaveAndReturnError:(NSError **)outError;
 {
+    NSError* __block error = nil;
+    
     // Kick off an autosave
     __block BOOL result = YES;
     [self autosaveWithImplicitCancellability:NO completionHandler:^(NSError *errorOrNil) {
         if (errorOrNil)
         {
             result = NO;
-            *outError = [errorOrNil copy];  // in case there's an autorelease pool
+            error = [errorOrNil copy];  // in case there's an autorelease pool
         }
     }];
     
@@ -1670,9 +1681,13 @@ originalContentsURL:(NSURL *)originalContentsURL
     [self performSynchronousFileAccessUsingBlock:^{ }];
     
 #if ! __has_feature(objc_arc)
-    if (!result) [*outError autorelease];   // match the -copy above
+    [error autorelease];   // match the -copy above
 #endif
     
+    if (error && outError) {
+        *outError = error ;
+    }
+
     return result;
 }
 
