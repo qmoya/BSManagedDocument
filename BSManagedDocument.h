@@ -55,6 +55,8 @@
 extern NSString* BSManagedDocumentDidSaveNotification ;
 extern NSString* BSManagedDocumentErrorDomain ;
 
+typedef BOOL (^WritingBlockType) (NSURL*, NSSaveOperationType, NSURL*, NSError**);
+
 __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
 {
   @private  // still targeting legacy runtime, so YES, I need to declare the ivars
@@ -63,7 +65,7 @@ __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
 	NSPersistentStore       *_store;
     NSPersistentStoreCoordinator *_coordinator;
     
-    id  _contents;
+    WritingBlockType _writingBlock;
     
     NSURL   *_autosavedContentsTempDirectoryURL;
     

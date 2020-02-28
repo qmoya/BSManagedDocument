@@ -22,7 +22,10 @@
 - (void)makeWindowControllers {
     WindowController *windowController = [WindowController new];
     [self addWindowController:windowController];
+
+#if !__has_feature(objc_arc)
     [windowController release];
+#endif
 }
 
 - (void)windowControllerDidLoadNib:(NSWindowController *)aController {
