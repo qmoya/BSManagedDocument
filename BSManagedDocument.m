@@ -9,7 +9,7 @@
 //  Licensed under the BSD License <http://www.opensource.org/licenses/bsd-license>
 //  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY
 //  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
-//  OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+//  OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT_s
 //  SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
 //  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
 //  TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
@@ -23,13 +23,42 @@
 #import <objc/message.h>
 
 NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotification" ;
+NSString* BSManagedDocumentErrorDomain = @"BSManagedDocumentErrorDomain" ;
 
 @interface BSManagedDocument ()
+
 @property(nonatomic, copy) NSURL *autosavedContentsTempDirectoryURL;
+@property(atomic, assign) BOOL isSaving;
+@property(atomic, assign) BOOL shouldCloseWhenDoneSaving;
+@property (atomic, copy) BOOL (^writingBlock)(NSURL*, NSSaveOperationType, NSURL*, NSError**);
+
+
 @end
 
 
 @implementation BSManagedDocument
+
+- (void)setWritingBlock:(WritingBlockType)writingBlock {
+    if (_writingBlock) {
+#if !__has_feature(objc_arc)
+        Block_release(_writingBlock);
+#endif
+    }
+    
+    if (writingBlock) {
+#if !__has_feature(objc_arc)
+        _writingBlock = Block_copy(writingBlock);
+#else
+        _writingBlock = [writingBlock copy];
+#endif
+    } else {
+        _writingBlock = nil;
+    }
+}
+
+- (WritingBlockType)writingBlock {
+    return _writingBlock;
+}
 
 #pragma mark UIManagedDocument-inspired methods
 
@@ -39,16 +68,16 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 + (NSString *)storePathForDocumentPath:(NSString*)path
 {
     BOOL isDirectory = YES;
-    [[NSFileManager defaultManager] fileExistsAtPath:path
-                                         isDirectory:&isDirectory];
+    [NSFileManager.defaultManager fileExistsAtPath:path
+                                       isDirectory:&isDirectory];
     /* I added the initialization YES on 20180114 after seeing a runtime
      warning here, sayig that isDirectory had a "Load of value -96,
      which is not a valid value for type 'BOOL' (aka 'signed char')". */
     if (isDirectory)
     {
         /* path is a file package. */
-        path = [path stringByAppendingPathComponent:[BSManagedDocument storeContentName]];
-        path = [path stringByAppendingPathComponent:[BSManagedDocument persistentStoreName]];
+        path = [path stringByAppendingPathComponent:self.storeContentName];
+        path = [path stringByAppendingPathComponent:self.persistentStoreName];
     }
 
     return path;
@@ -58,15 +87,15 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
                      documentExtension:(NSString*)extension
 {
     NSString* answer = nil;
-    if ([[path pathExtension] isEqualToString:extension])
+    if ([path.pathExtension isEqualToString:extension])
     {
         answer = path;
     }
-    else if ([[path lastPathComponent] isEqualToString:[self persistentStoreName]]) {
-        path = [path stringByDeletingLastPathComponent];
-        if ([[path lastPathComponent] isEqualToString:[self storeContentName]]) {
-            path = [path stringByDeletingLastPathComponent];
-            if ([[path pathExtension] isEqualToString:extension]) {
+    else if ([path.lastPathComponent isEqualToString:self.persistentStoreName]) {
+        path = path.stringByDeletingLastPathComponent;
+        if ([path.lastPathComponent isEqualToString:self.storeContentName]) {
+            path = path.stringByDeletingLastPathComponent;
+            if ([path.pathExtension isEqualToString:extension]) {
                 answer = path;
             }
         }
@@ -78,10 +107,10 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 
 + (NSURL *)persistentStoreURLForDocumentURL:(NSURL *)fileURL;
 {
-    NSString *storeContent = [self storeContentName];
+    NSString *storeContent = self.storeContentName;
     if (storeContent) fileURL = [fileURL URLByAppendingPathComponent:storeContent];
     
-    fileURL = [fileURL URLByAppendingPathComponent:[self persistentStoreName]];
+    fileURL = [fileURL URLByAppendingPathComponent:self.persistentStoreName];
     return fileURL;
 }
 
@@ -98,7 +127,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
         else
         {
             // On 10.6, context MUST be created on the thread/queue that's going to use it
-            if ([NSThread isMainThread])
+            if (NSThread.isMainThread)
             {
                 context = [[self.class.managedObjectContextClass alloc] init];
             }
@@ -123,7 +152,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 {
     // Setup the rest of the stack for the context
     if (!_coordinator)
-        _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self managedObjectModel]];
+        _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:self.managedObjectModel];
     
     if (self.hasUndoManager)
     {
@@ -139,14 +168,14 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
          https://github.com/karelia/BSManagedDocument/issues/50
          In either case, this may be not what the developer has specified
          in overriding +undoManagerClass.  So we test… */
-        if (context.undoManager.class != [[self class] undoManagerClass])
+        if (context.undoManager.class != self.class.undoManagerClass)
         {
             /* This branch will always execute, *except* in two *edge* cases:
              * Edge Case 1: macOS 10.11 or earlier, and +undoManagerClass is
              overridden to return NSUndoManager, or not overridden.
              * Edge Case 2: macOS 10.12 or later, and +undoManagerClass is
              overridden to return nil. */
-            NSUndoManager *undoManager = [[[[self class] undoManagerClass] alloc] init];
+            NSUndoManager *undoManager = [[self.class.undoManagerClass alloc] init];
             context.undoManager = undoManager;  // may rightfully be nil
 #if !__has_feature(objc_arc)
             [undoManager release];
@@ -158,13 +187,14 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     // Need 10.7+ to support parent context
     if ([context respondsToSelector:@selector(setParentContext:)])
     {
+        // macOS 10.7 or later
         [context performBlockAndWait:setUndoManagerBlock];
          
         NSManagedObjectContext *parentContext = [[self.class.managedObjectContextClass alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
         parentContext.undoManager = nil; // no point in it supporting undo
         parentContext.persistentStoreCoordinator = _coordinator;
         
-        [context setParentContext:parentContext];
+        context.parentContext = parentContext;
 
 #if !__has_feature(objc_arc)
         [parentContext release];
@@ -172,6 +202,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     }
     else
     {
+        // macOS 10.6 or earlier
         setUndoManagerBlock();
         context.persistentStoreCoordinator = _coordinator;
     }
@@ -194,7 +225,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 {
     if (!_managedObjectModel)
     {
-        _managedObjectModel = [NSManagedObjectModel mergedModelFromBundles:[NSArray arrayWithObject:[NSBundle mainBundle]]];
+        _managedObjectModel = [NSManagedObjectModel mergedModelFromBundles:@[NSBundle.mainBundle]];
 
 #if ! __has_feature(objc_arc)
         [_managedObjectModel retain];
@@ -207,7 +238,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 - (BOOL)configurePersistentStoreCoordinatorForURL:(NSURL *)storeURL
                                            ofType:(NSString *)fileType
                                modelConfiguration:(NSString *)configuration
-                                     storeOptions:(NSDictionary *)storeOptions
+                                     storeOptions:(NSDictionary<NSString *,id> *)storeOptions
                                             error:(NSError **)error_p
 {
     /* I was getting a crash on launch, in OS X 10.11, when previously-opened
@@ -227,8 +258,13 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     // load, resulting in a deadlock. So we create the coordinator now and add it to
     // the context later, when we know we have access to the main thread.
     if (!_coordinator)
-        _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self managedObjectModel]];
-
+    {
+        /* I don't know when this branch ever runs.  In all my testing,
+         _coordinator is created within -setManagedObjectContext:.
+         I have never seen this branch run. */
+        _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:self.managedObjectModel];
+    }
+    
     void (^addPersistentStoreBlock)(void) = ^{
         _store = [_coordinator addPersistentStoreWithType:[self persistentStoreTypeForFileType:fileType]
                                             configuration:configuration
@@ -246,10 +282,67 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     // on the assumption it's posted on the main thread. That could do some very weird things, so
     // let's make sure the notification is actually posted on the main thread.
     // Also seems to fix the deadlock in https://github.com/karelia/BSManagedDocument/issues/36
-    if ([_coordinator respondsToSelector:@selector(performBlockAndWait:)]) {
-        // 10.10 and later
-        [_coordinator performBlockAndWait:addPersistentStoreBlock];
-    } else if ([_managedObjectContext respondsToSelector:@selector(performBlockAndWait:)]) {
+    
+    /* Comment by Jerry 2019-09-18:  Until today, the code below used
+     [_coordinator performBlockAndWait:] if available, which it is in macOS
+     10.10 or later.  That caused a problem in macOS 10.15 Beta 8,
+     after opting in to asynchronous saving.  I'm not sure which of these two
+     factors is responsible, but since I've already done a lot of testing with
+     opting in to asynchronous saving, I want to leave it on.
+     
+     The problem is that sometimes during an auto save, and always, after
+     creating a new adocument and saving it for the first time,
+     For some reason, when Core Data Concurency Debugging on, I get the famous
+     __Multithreading_Violation_AllThatIsLeftToUsIsHonor_ assertion whenver
+     a new document is first saved, and one time I saw it when autosaving an
+     already open document.  This assertion occurs inside the
+     addPersistentStoreBlock above, upon addPersistentStoreWithType:::::.
+     Of course, it does not make any sense that this could happen within a
+     performBlockAndWait: call, because that is the whole purpose of
+     performBlockAndWait:, to prevent these multithreading violations.
+     In this class, the psc and the parent moc can and usually do operate in
+     different non-main queues when you send -performBlock: or
+     -performBlockAndWait:).  I thought that might be the problem, so I tried
+     forcing the psc and the parent moc to operate in the same queue, by
+     creating the psc within a performBlockAndWait: sent to the parent moc.
+     (See debugging code below in this comment.)  It worked as intended,  but
+     had no effect on the problem.
+     
+     Of course it is possible that the multithreading assertion is a false
+     alarm, a bug in 10.15 Beta 8, but I do not want to assume that.
+     
+     The only way I found to fix the problem, implemented below, is to comment
+     out the code branch for macOS 10.10 and later, which uses
+     -[NSPersistentStoreCoordinator performBlockAndWait:], and instead execute
+     the branch for 10.7 - 10.9, which uses instead
+     -[NSManagedObjectContext performBlockAndWait:].  Because I need to ship
+     this now, I'm leaving it like that at this time.
+     
+     Maybe I shall revisit this after 10.15 is out of beta. Here is debugging
+     code one can use to log the operating queue of the psc and each of the two
+     mocs:
+     
+     __block NSObject* whatever = nil;
+     void (^logTheQueueBlock)(void) = ^void(void){
+         NSLog(@"Operating thread is %@ %p for %@", [NSThread isMainThread] ? @"main" : @"non-main", [NSThread currentThread], whatever) ;
+     };
+     whatever = _coordinator;
+     [_coordinator performBlockAndWait:logTheQueueBlock];
+     whatever = _managedObjectContext.parentContext;
+     [_managedObjectContext.parentContext performBlockAndWait:logTheQueueBlock];
+     whatever = _managedObjectContext;
+     [_managedObjectContext performBlockAndWait:logTheQueueBlock];
+     
+     Here is another line of debugging code which is handy:
+     
+     NSLog(@"1 Created moc %p with NSMainQueueConcurrencyType on %@ thread %p", context, [NSThread isMainThread] ? @"main" : @"secondary", [NSThread currentThread]) ;
+     
+     And now, the fix… */
+//    if ([_coordinator respondsToSelector:@selector(performBlockAndWait:)]) {
+//        // 10.10 and later
+//        [_coordinator performBlockAndWait:addPersistentStoreBlock];
+//    } else
+    if ([_managedObjectContext respondsToSelector:@selector(performBlockAndWait:)]) {
         // On 10.7 - 10.9, use the context's performBlockAndWait: - BUT ONLY IF THE CONTEXT
         // ALREADY EXISTS. Creating a context on this thread (which self.managedObjectContext
         // will do) can result in a deadlock with the Version Browser.
@@ -275,9 +368,9 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
                                             error:(NSError **)error
 {
     // On 10.8+, the coordinator whinges but doesn't fail if you leave out NSReadOnlyPersistentStoreOption and the file turns out to be read-only. Supplying a value makes it fail with a (not very helpful) error when the store is read-only
-    BOOL readonly = ([self respondsToSelector:@selector(isInViewingMode)] && [self isInViewingMode]);
+    BOOL readonly = ([self respondsToSelector:@selector(isInViewingMode)] && self.isInViewingMode);
     
-    NSDictionary *options = @{
+    NSDictionary<NSString *,id> *options = @{
                               // For apps linked against 10.9+ and supporting 10.6 still, use the old
                               // style journal. Since the journal lives alongside the persistent store
                               // I figure there's a chance it could be copied from a new Mac to an old one
@@ -320,7 +413,68 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 
 #pragma mark Lifecycle
 
-- (void)close;
+/* The following three methods implement a mechanism which defer any requested
+closing of this document until any currently working Save or Save As
+operation is completed.
+ 
+ Without this mechanism, if the code in -closeNow is in -close as it was before
+ I fixed this, and if -close is invoked while saving is in progress, saving
+ may produce the following rather surprising error (with underlying errors):
+ 
+ code 478202 in domain: BSManagedDocumentErrorDomain
+ Failed regular writing
+
+ code: 478206 in domain: BSManagedDocumentErrorDomain
+ Failed creating package directories
+
+ code: 516 in domain: NSCocoaErrorDomain
+ The file “xxx” couldn’t be saved in the folder “yyy” because a file with the
+ same name already exists.
+
+ code: 17 in domain: NSPOSIXErrorDomain
+ The operation couldn’t be completed. File exists
+ 
+ This occurs because the _store ivar may be set to nil before the code in the
+ so-called "worker block" runs.  That code will presume that this must be a new
+ document, and the resulting attempt to create new package directories will
+ fail because that code (wisely, to prevent data on disk from being
+ overwritten) passes withIntermediateDirectories:NO when invoking NSFileManager
+ to do these creations.
+ 
+ This mechanism is obviously important if we are, as we do by default, use
+ asynchronous saving (see -canAsynchronouslyWriteToURL::), because the error
+ will probably occur every time.  But it is also important (maybe even more
+ important) otherwise, because in macOS 10.7+, -[NSDocument saveDocument:]
+ always returns immediately, even if a subclass has opted *out* of asynchronous
+ saving.  Saving is in fact merely "less asynchronous", and the error will
+ occur only *sometimes*.
+ */
+
+- (void)close
+{
+    if (self.isSaving) {
+        self.shouldCloseWhenDoneSaving = YES;
+    }
+    else
+    {
+        [self closeNow];
+    }
+}
+
+- (void)signalDoneAndMaybeClose
+{
+    self.isSaving = NO;
+
+    if (self.shouldCloseWhenDoneSaving)
+    {
+        [self closeNow];
+
+        /* The following probably has no effect, but is for good practice. */
+        self.shouldCloseWhenDoneSaving = NO;
+    }
+}
+
+- (void)closeNow
 {
     NSError *error = nil;
     if (![self removePersistentStoreWithError:&error])
@@ -344,6 +498,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     [super dealloc];
 }
 #endif
+
 
 #pragma mark Reading Document Data
 
@@ -408,7 +563,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     // If have already read, then this is a revert-type affair, so must reload data from disk
     if (_store)
     {
-        if (!([NSThread isMainThread])) {
+        if (!NSThread.isMainThread) {
             [NSException raise:NSInternalInconsistencyException format:@"%@: I didn't anticipate reverting on a background thread!", NSStringFromSelector(_cmd)];
         }
         
@@ -448,20 +603,37 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     return result;
 }
 
+/* The following two methods are necessary because in one of the methods below
+we use a weak self (`welf`) when compiling with ARC.  We should make these two
+ methods properties and replace all of the remaining direct instance variable
+ accesses.  They scare me.
+ */
+
+- (NSPersistentStore*)store {
+    return _store;
+}
+
+- (NSPersistentStoreCoordinator*)coordinator {
+    return _coordinator;
+}
+
 #pragma mark Writing Document Data
 
-- (id)contentsForURL:(NSURL *)url ofType:(NSString *)typeName saveOperation:(NSSaveOperationType)saveOperation error:(NSError **)outError;
+- (BOOL)makeWritingBlockForURL:(NSURL *)url ofType:(NSString *)typeName saveOperation:(NSSaveOperationType)saveOperation error:(NSError **)outError;
 {
     // NSAssert([NSThread isMainThread], @"Somehow -%@ has been called off of the main thread (operation %u to: %@)", NSStringFromSelector(_cmd), (unsigned)saveOperation, [url path]);
     // See Note JK20180125 below.
     
+    BOOL __block ok = YES;
+
     // Grab additional content that a subclass might provide
     if (outError) *outError = nil;  // unusually for me, be forgiving of subclasses which forget to fill in the error
     id additionalContent = [self additionalContentForURL:url saveOperation:saveOperation error:outError];
     if (!additionalContent)
     {
         if (outError) NSAssert(*outError != nil, @"-additionalContentForURL:saveOperation:error: failed with a nil error");
-        return nil;
+        [self signalDoneAndMaybeClose];
+        ok = NO;
     }
     
     
@@ -472,7 +644,6 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
      tried it with asynchronous saving ON for a time.  (That is, I changed my
      subclass' override of -canAsynchronouslyWriteToURL:::: to return YES.)
      Wrapping the call to -save: in -performBlockAndWait:, below, fixed it. */
-    BOOL __block ok = YES;
     NSError* __block blockError = nil;
     NSManagedObjectContext *context = self.managedObjectContext;
     if ([context respondsToSelector:@selector(performBlockAndWait:)])
@@ -492,42 +663,75 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     }
     if (!ok)
     {
-        return nil;
+        [self signalDoneAndMaybeClose];
+        if (outError && !*outError)
+        {
+            *outError = [NSError errorWithDomain:BSManagedDocumentErrorDomain
+                                            code:478221
+                                        userInfo:@{ NSLocalizedDescriptionKey : @"Unspecified error saving Core Data MOC" }];
+        }
     }
     
-    // What we consider to be "contents" is actually a worker block
-    BOOL (^contents)(NSURL *, NSSaveOperationType, NSURL *, NSError**) = ^(NSURL *url, NSSaveOperationType saveOperation, NSURL *originalContentsURL, NSError **error) {
+#if __has_feature(objc_arc)
+    __weak typeof(self) welf = self;
+#else
+    // __weak was meaningless in non-ARC; generates a compiler warning
+    BSManagedDocument* welf = self;
+#endif
+    
+    self.writingBlock = ^(NSURL *url, NSSaveOperationType saveOperation, NSURL *originalContentsURL, NSError **error) {
         
         // For the first save of a document, create the folders on disk before we do anything else
         // Then setup persistent store appropriately
         BOOL result = YES;
-        NSURL *storeURL = [self.class persistentStoreURLForDocumentURL:url];
+        NSURL *storeURL = [welf.class persistentStoreURLForDocumentURL:url];
         
-        if (!_store)
+        if (![welf store])
         {
-            result = [self createPackageDirectoriesAtURL:url
+            result = [welf createPackageDirectoriesAtURL:url
                                                   ofType:typeName
                                         forSaveOperation:saveOperation
                                      originalContentsURL:originalContentsURL
                                                    error:error];
-            if (!result) return NO;
+            [welf spliceErrorWithCode:478206
+                 localizedDescription:@"Failed creating package directories"
+                        likelyCulprit:url
+                         intoOutError:error];
+            if (!result)
+            {
+                [welf signalDoneAndMaybeClose];
+                return NO;
+            }
             
-            result = [self configurePersistentStoreCoordinatorForURL:storeURL
+            result = [welf configurePersistentStoreCoordinatorForURL:storeURL
                                                               ofType:typeName
                                                                error:error];
-            if (!result) return NO;
+            [welf spliceErrorWithCode:478207
+                 localizedDescription:@"Failed to configure PSC"
+                        likelyCulprit:storeURL
+                         intoOutError:error];
+            if (!result)
+            {
+                [welf signalDoneAndMaybeClose];
+                return NO;
+            }
         }
         else if (saveOperation == NSSaveAsOperation)
         {
             // Copy the whole package to the new location, not just the store content
-            if (![self writeBackupToURL:url error:error])
+            if (![welf writeBackupToURL:url error:error])
             {
+                [welf spliceErrorWithCode:478208
+                     localizedDescription:@"Failed writing backup file"
+                            likelyCulprit:url
+                             intoOutError:error];
+                [welf signalDoneAndMaybeClose];
                 return NO;
             }
         }
         else
         {
-            if (self.class.autosavesInPlace)
+            if (welf.class.autosavesInPlace)
             {
                 if (saveOperation == NSAutosaveElsewhereOperation)
                 {
@@ -538,44 +742,82 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
                     // But the doc system also asks to do this when performing a Save As operation, and choosing to discard unsaved edits to the existing doc. In which case the SQLite store moves out underneath us and we blow up shortly after
                     // Doc system apparently considers it fine to fail at this, since it passes in NULL as the error pointer
                     // With great sadness and wretchedness, that's the best workaround I have for the moment
-                    NSURL *fileURL = self.fileURL;
+                    NSURL *fileURL = welf.fileURL;
                     if (fileURL)
                     {
-                        NSURL *autosaveURL = self.autosavedContentsFileURL;
+                        NSURL *autosaveURL = welf.autosavedContentsFileURL;
                         if (!autosaveURL)
                         {
                             // Make a copy of the existing doc to a location we control first
-                            NSURL *autosaveTempDirectory = self.autosavedContentsTempDirectoryURL;
-                            NSAssert(autosaveTempDirectory == nil, @"Somehow have a temp directory, but no knowledge of a doc inside it");
-                            
-                            autosaveTempDirectory = [[NSFileManager defaultManager] URLForDirectory:NSItemReplacementDirectory
-                                                                                           inDomain:NSUserDomainMask
-                                                                                  appropriateForURL:fileURL
-                                                                                             create:YES
-                                                                                              error:error];
-                            if (!autosaveTempDirectory) return NO;
-                            self.autosavedContentsTempDirectoryURL = autosaveTempDirectory;
+                            NSURL *autosaveTempDirectory = [[NSFileManager defaultManager] URLForDirectory:NSItemReplacementDirectory
+                                                                                                  inDomain:NSUserDomainMask
+                                                                                         appropriateForURL:fileURL
+                                                                                                    create:YES
+                                                                                                     error:error];
+                            if (!autosaveTempDirectory) {
+                                [welf spliceErrorWithCode:478210
+                                     localizedDescription:@"Failed getting IRD"
+                                            likelyCulprit:fileURL
+                                             intoOutError:error];
+                                [welf signalDoneAndMaybeClose];
+                                return NO;
+                            }
+                            welf.autosavedContentsTempDirectoryURL = autosaveTempDirectory;
                             
                             autosaveURL = [autosaveTempDirectory URLByAppendingPathComponent:fileURL.lastPathComponent];
-                            if (![self writeBackupToURL:autosaveURL error:error]) return NO;
+                            if (![welf writeBackupToURL:autosaveURL error:error])
+                            {
+                                [welf spliceErrorWithCode:478211
+                                     localizedDescription:@"Failed writing to backup URL"
+                                            likelyCulprit:autosaveURL
+                                             intoOutError:error];
+                                [welf signalDoneAndMaybeClose];
+                                return NO;
+                            }
                             
-                            self.autosavedContentsFileURL = autosaveURL;
+                            welf.autosavedContentsFileURL = autosaveURL;
                         }
                         
                         // Bring the autosaved doc up-to-date
-                        result = [self writeStoreContentToURL:[self.class persistentStoreURLForDocumentURL:autosaveURL]
+                        NSURL* storeURL = [welf.class persistentStoreURLForDocumentURL:autosaveURL];
+                        result = [welf writeStoreContentToURL:storeURL
                                                         error:error];
-                        if (!result) return NO;
-                        
-                        result = [self writeAdditionalContent:additionalContent
+                        if (!result)
+                        {
+                            [welf spliceErrorWithCode:478212
+                                 localizedDescription:@"Failed writing store content"
+                                        likelyCulprit:storeURL
+                                         intoOutError:error];
+                            [welf signalDoneAndMaybeClose];
+                            return NO;
+                        }
+
+                        result = [welf writeAdditionalContent:additionalContent
                                                         toURL:autosaveURL
                                           originalContentsURL:originalContentsURL
                                                         error:error];
-                        if (!result) return NO;
+                        if (!result)
+                        {
+                            [welf spliceErrorWithCode:478213
+                                 localizedDescription:@"Failed writing additional content"
+                                        likelyCulprit:autosaveURL
+                                         intoOutError:error];
+                            [welf signalDoneAndMaybeClose];
+                            return NO;
+                        }
                         
                         
                         // Then copy that across to the final URL
-                        return [self writeBackupToURL:url error:error];
+                        result = [self writeBackupToURL:url error:error];
+                        if (!result)
+                        {
+                            [welf spliceErrorWithCode:478214
+                                 localizedDescription:@"Failed copying to final URL"
+                                        likelyCulprit:url
+                                         intoOutError:error];
+                            [welf signalDoneAndMaybeClose];
+                            return NO;
+                        }
                     }
                 }
             }
@@ -585,58 +827,81 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
                 {
                     if (![storeURL checkResourceIsReachableAndReturnError:NULL])
                     {
-                        result = [self createPackageDirectoriesAtURL:url
+                        result = [welf createPackageDirectoriesAtURL:url
                                                               ofType:typeName
                                                     forSaveOperation:saveOperation
                                                  originalContentsURL:originalContentsURL
                                                                error:error];
-                        if (!result) return NO;
-                        
+                        if (!result)
+                        {
+                            [welf spliceErrorWithCode:478215
+                                 localizedDescription:@"Failed creating package directories for non-regular save"
+                                        likelyCulprit:url
+                                         intoOutError:error];
+                            [welf signalDoneAndMaybeClose];
+                            return NO;
+                        }
+
                         // Fake a placeholder file ready for the store to save over
-                        if (![[NSData data] writeToURL:storeURL options:0 error:error]) return NO;
+                        result = [[NSData data] writeToURL:storeURL options:0 error:error];
+                        if (!result)
+                        {
+                            [welf spliceErrorWithCode:478216
+                                 localizedDescription:@"Failed faking placeholder"
+                                        likelyCulprit:storeURL
+                                         intoOutError:error];
+                            [welf signalDoneAndMaybeClose];
+                            return NO;
+                        }
                     }
                 }
             }
         }
         
-        
         // Right, let's get on with it!
-        if (![self writeStoreContentToURL:storeURL error:error]) return NO;
+        if (![welf writeStoreContentToURL:storeURL error:error])
+        {
+            [welf signalDoneAndMaybeClose];
+            return NO;
+        }
         
-            result = [self writeAdditionalContent:additionalContent toURL:url originalContentsURL:originalContentsURL error:error];
-            
-            if (result)
+        result = [welf writeAdditionalContent:additionalContent toURL:url originalContentsURL:originalContentsURL error:error];
+        if (result)
+        {
+            // Update package's mod date. Two circumstances where this is needed:
+            //  user requests a save when there's no changes; SQLite store doesn't bother to touch the disk in which case
+            //  saving where +storeContentName is non-nil; that folder's mod date updates, but the overall package needs prompting
+            // Seems simplest to just apply this logic all the time
+            NSError *error;
+            if (![url setResourceValue:[NSDate date] forKey:NSURLContentModificationDateKey error:&error])
             {
-                // Update package's mod date. Two circumstances where this is needed:
-                //  user requests a save when there's no changes; SQLite store doesn't bother to touch the disk in which case
-                //  saving where +storeContentName is non-nil; that folder's mod date updates, but the overall package needs prompting
-                // Seems simplest to just apply this logic all the time
-                NSError *error;
-                if (![url setResourceValue:[NSDate date] forKey:NSURLContentModificationDateKey error:&error])
-                {
-                    NSLog(@"Updating package mod date failed: %@", error);  // not critical, so just log it
-                }
+                NSLog(@"Updating package mod date failed: %@", error);  // not critical, so just log it
             }
-        
+        }
+        else
+        {
+            [welf spliceErrorWithCode:478217
+                 localizedDescription:@"Failed to get on with writing"
+                        likelyCulprit:url
+                         intoOutError:error];
+            [welf signalDoneAndMaybeClose];
+            return NO;
+        }
         
         // Restore persistent store URL after Save To-type operations. Even if save failed (just to be on the safe side)
         if (saveOperation == NSSaveToOperation)
         {
-            if (![_coordinator setURL:originalContentsURL forPersistentStore:_store])
+            if (![[welf coordinator] setURL:originalContentsURL forPersistentStore:[welf store]])
             {
                 NSLog(@"Failed to reset store URL after Save To Operation");
             }
         }
         
-        
+        [welf signalDoneAndMaybeClose];
         return result;
     };
     
-#if !__has_feature(objc_arc)
-    return [[contents copy] autorelease];
-#else
-    return [contents copy];
-#endif
+    return ok;
 }
 
 - (BOOL)createPackageDirectoriesAtURL:(NSURL *)url
@@ -654,21 +919,30 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     if (!attributes) return NO;
     
     BOOL result = NO;
-    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSFileManager *fileManager = NSFileManager.defaultManager;
     if ([fileManager respondsToSelector:
         @selector(createDirectoryAtURL:withIntermediateDirectories:attributes:error:)]) {
+        // macOS 10.7 or later
         result = [fileManager createDirectoryAtURL:url
                        withIntermediateDirectories:NO
                                         attributes:attributes
                                              error:error];
     } else {
-        result = [fileManager createDirectoryAtPath:[url path]
+        // macOS 10.6 or earlier
+        result = [fileManager createDirectoryAtPath:url.path
                         withIntermediateDirectories:NO
                                          attributes:attributes
                                               error:error];
     }
-    if (!result) return NO;
-    
+    if (!result)
+    {
+        [self spliceErrorWithCode:478219
+             localizedDescription:@"File Manager failed to create package directory"
+                    likelyCulprit:url
+                     intoOutError:error];
+        return NO;
+    }
+
     // Create store content folder too
     NSString *storeContent = self.class.storeContentName;
     if (storeContent)
@@ -682,13 +956,20 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
                                              attributes:attributes
                                                   error:error];
         } else {
-            result = [fileManager createDirectoryAtPath:[storeContentURL path]
+            result = [fileManager createDirectoryAtPath:storeContentURL.path
                             withIntermediateDirectories:NO
                                              attributes:attributes
                                                   error:error];
         }
 
-        if (!result) return NO;
+        if (!result)
+        {
+            [self spliceErrorWithCode:478218
+                 localizedDescription:@"File Manager failed to create store content subdirectory"
+                        likelyCulprit:storeContentURL
+                         intoOutError:error];
+            return NO;
+        }
     }
     
     // Set the bundle bit for good measure, so that docs won't appear as folders on Macs without your app installed. Don't care if it fails
@@ -705,73 +986,80 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
     //  * Autosaving (as tested on 10.7) is declared to the system as *file access*, rather than an *activity*, so a regular save won't block the UI waiting for autosave to finish
     //  * If autosaving while quitting, calling -performActivity… here results in deadlock
     [self performAsynchronousFileAccessUsingBlock:^(void (^fileAccessCompletionHandler)(void)) {  // Note StackPoint2
-        
-        NSAssert(_contents == nil, @"Can't begin save; another is already in progress. Perhaps you forgot to wrap the call inside of -performActivityWithSynchronousWaiting:usingBlock:");
-        
-        
-        // Stash contents temporarily into an ivar so -writeToURL:… can access it from the worker thread
-        NSError *error = nil ;
-        _contents = [self contentsForURL:url ofType:typeName saveOperation:saveOperation error:&error];
 
-        BOOL notLoaded = [[[NSDocumentController sharedDocumentController] documents] indexOfObject:self] == NSNotFound;
-        if (notLoaded) {
-            NSLog(@"Warning 382-6734 Aborting save cuz not loaded: %@", self);
-            /* I have seen this occur if a document save is attempted during
-             document opening, as for example if if document opening includes
-             some kind of integrity check which fixes problems.  If such a
-             too-early save is allowed tp proceed here, the call below to
-             [super saveToURL:ofType:forSaveOperation:completionHandler:] will
-             hang with the following stack:
+        NSError* shouldAbortError = nil;
+        
+        if (self.writingBlock != nil) {
+            NSLog(@"Warning 382-6733 Aborting save because another is already in progress.");
+            shouldAbortError = [NSError errorWithDomain:NSCocoaErrorDomain
+                                                   code:NSUserCancelledError
+                                               userInfo:nil];
+        } else {
+            [self makeWritingBlockForURL:url ofType:typeName saveOperation:saveOperation error:&shouldAbortError];
 
-             #0    0x00007fff7bdd3266 in semaphore_wait_trap ()
-             #1    0x00007fff7bc51bd9 in _dispatch_sema4_wait ()
-             #2    0x00007fff7bc523a0 in _dispatch_semaphore_wait_slow ()
-             #3    0x00007fff5158b756 in -[NSFileCoordinator(NSPrivate) _blockOnAccessClaim:withAccessArbiter:] ()
-             #4    0x00007fff517512f0 in -[NSFileCoordinator(NSPrivate) _coordinateReadingItemAtURL:options:writingItemAtURL:options:error:byAccessor:] ()
-             #5    0x00007fff4d3873cc in -[NSDocument(NSDocumentSaving) _fileCoordinator:coordinateReadingContentsAndWritingItemAtURL:byAccessor:] ()
-             #6    0x00007fff4d389098 in __85-[NSDocument(NSDocumentSaving) _saveToURL:ofType:forSaveOperation:completionHandler:]_block_invoke_2.810 ()
-             #7    0x00007fff4d388844 in __85-[NSDocument(NSDocumentSaving) _saveToURL:ofType:forSaveOperation:completionHandler:]_block_invoke ()
-             #8    0x00007fff4d3886c7 in -[NSDocument(NSDocumentSaving) _saveToURL:ofType:forSaveOperation:completionHandler:] ()
-             #9    0x00000001062bd7c1 in __73-[BSManagedDocument saveToURL:ofType:forSaveOperation:completionHandler:]_block_invoke at // Note StackPoint1
-             #10    0x00007fff4cea138d in -[NSDocument(NSDocumentSerializationAPIs) continueFileAccessUsingBlock:] ()
-             #11    0x00007fff4cea1ab6 in -[NSDocument(NSDocumentSerializationAPIs) _performFileAccess:] ()
-             #12    0x00000001062bd52d in -[BSManagedDocument saveToURL:ofType:forSaveOperation:completionHandler:] at // Note StackPoint2
+            BOOL notLoaded = [NSDocumentController.sharedDocumentController.documents indexOfObject:self] == NSNotFound;
+            if (notLoaded) {
+                NSLog(@"Warning 382-6734 Aborting save cuz not loaded: %@", self);
+                /* I have seen this occur if a document save is attempted during
+                 document opening, as for example if if document opening includes
+                 some kind of integrity check which fixes problems.  If such a
+                 too-early save is allowed tp proceed here, the call below to
+                 [super saveToURL:ofType:forSaveOperation:completionHandler:] will
+                 hang with the following stack:
 
-             Looks like a file coordination deadlock.  I found that, duing such
-             an attempted save, the document is oddly not in the document
-             controller's documents yet; hence the condition `notLoaded`.
-             */
+                 #0    0x00007fff7bdd3266 in semaphore_wait_trap ()
+                 #1    0x00007fff7bc51bd9 in _dispatch_sema4_wait ()
+                 #2    0x00007fff7bc523a0 in _dispatch_semaphore_wait_slow ()
+                 #3    0x00007fff5158b756 in -[NSFileCoordinator(NSPrivate) _blockOnAccessClaim:withAccessArbiter:] ()
+                 #4    0x00007fff517512f0 in -[NSFileCoordinator(NSPrivate) _coordinateReadingItemAtURL:options:writingItemAtURL:options:error:byAccessor:] ()
+                 #5    0x00007fff4d3873cc in -[NSDocument(NSDocumentSaving) _fileCoordinator:coordinateReadingContentsAndWritingItemAtURL:byAccessor:] ()
+                 #6    0x00007fff4d389098 in __85-[NSDocument(NSDocumentSaving) _saveToURL:ofType:forSaveOperation:completionHandler:]_block_invoke_2.810 ()
+                 #7    0x00007fff4d388844 in __85-[NSDocument(NSDocumentSaving) _saveToURL:ofType:forSaveOperation:completionHandler:]_block_invoke ()
+                 #8    0x00007fff4d3886c7 in -[NSDocument(NSDocumentSaving) _saveToURL:ofType:forSaveOperation:completionHandler:] ()
+                 #9    0x00000001062bd7c1 in __73-[BSManagedDocument saveToURL:ofType:forSaveOperation:completionHandler:]_block_invoke at // Note StackPoint1
+                 #10    0x00007fff4cea138d in -[NSDocument(NSDocumentSerializationAPIs) continueFileAccessUsingBlock:] ()
+                 #11    0x00007fff4cea1ab6 in -[NSDocument(NSDocumentSerializationAPIs) _performFileAccess:] ()
+                 #12    0x00000001062bd52d in -[BSManagedDocument saveToURL:ofType:forSaveOperation:completionHandler:] at // Note StackPoint2
+
+                 Looks like a file coordination deadlock.  I found that, duing such
+                 an attempted save, the document is oddly not in the document
+                 controller's documents yet; hence the condition `notLoaded`.
+                 */
+            }
+            BOOL noWritingBlock = (self.writingBlock == nil);
+            if (noWritingBlock) {
+                NSLog(@"Warning 382-6735 Aborting save cuz no writingBlock: %@", self);
+            }
+
+            if (noWritingBlock || notLoaded)
+            {
+                // In either of these exceptional cases, abort the save.
+
+                // The docs say "be sure to invoke super", but by my understanding it's fine not to if it's because of a failure, as the filesystem hasn't been touched yet.
+                self.writingBlock = nil;
+                if (!shouldAbortError) {
+                    shouldAbortError = [NSError errorWithDomain:NSCocoaErrorDomain
+                                                           code:NSUserCancelledError
+                                                       userInfo:nil];
+                }
+            }
         }
-        BOOL noContents = (_contents == nil);
-        if (noContents) {
-            NSLog(@"Warning 382-6735 Aborting save cuz no contents: %@", self);
-        }
-
-        if (noContents || notLoaded)
-        {
-            // In either of these exceptional cases, abort the save.
-
-            // The docs say "be sure to invoke super", but by my understanding it's fine not to if it's because of a failure, as the filesystem hasn't been touched yet.
-            _contents = nil;
-            if ([NSThread isMainThread])
+            
+        if (shouldAbortError) {
+            if (NSThread.isMainThread)
             {
                 fileAccessCompletionHandler();
-                if (completionHandler) completionHandler(error);
+                if (completionHandler) completionHandler(shouldAbortError);
             }
             else
             {
                 dispatch_sync(dispatch_get_main_queue(), ^{
                     fileAccessCompletionHandler();
-                    if (completionHandler) completionHandler(error);
+                    if (completionHandler) completionHandler(shouldAbortError);
                 });
             }
             return;
         }
-        
-#if !__has_feature(objc_arc)
-        [_contents retain];
-#endif
-        
         
         // Kick off async saving work
         [super saveToURL:url ofType:typeName forSaveOperation:saveOperation completionHandler:^(NSError *error) {  // Note StackPoint1
@@ -781,19 +1069,16 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 			// NSDocument handles this by presenting the error, which includes recovery options
 			// If the user does choose to Save Anyway, the doc system leaps straight onto secondary thread to
 			// accomplish it, without calling this method again.
-			// Thus we want to hang onto _contents until the overall save operation is finished, rather than
+			// Thus we want to hang onto _writingBlock until the overall save operation is finished, rather than
 			// just this method. The best way I can see to do that is to make the cleanup its own activity, so
 			// it runs after the end of the current one. Unfortunately there's no guarantee anyone's been
             // thoughtful enough to register this as an activity (autosave, I'm looking at you), so only rely
             // on it if there actually is a recoverable error
-			if ([error recoveryAttempter])
+			if (error.recoveryAttempter)
             {
                 [self performActivityWithSynchronousWaiting:NO usingBlock:^(void (^activityCompletionHandler)(void)) {
                     
-#if !__has_feature(objc_arc)
-                    [_contents release];
-#endif
-                    _contents = nil;
+                    self.writingBlock = nil;
                     
                     dispatch_async(dispatch_get_main_queue(), ^{
                         activityCompletionHandler();
@@ -802,10 +1087,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
             }
             else
             {
-#if !__has_feature(objc_arc)
-                [_contents release];
-#endif
-                _contents = nil;
+                self.writingBlock = nil;
             }
 			
 			
@@ -851,6 +1133,35 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 }
 #endif
 
+- (BOOL)spliceErrorWithCode:(NSInteger)code
+       localizedDescription:(NSString*)localizedDescription
+              likelyCulprit:(id)likelyCulprit
+               intoOutError:(NSError**)outError
+{
+    if (outError)
+    {
+        NSMutableDictionary<NSErrorUserInfoKey, id> *mutant = [NSMutableDictionary new];
+        mutant[NSLocalizedDescriptionKey] = localizedDescription;
+        if (*outError)
+        {
+            mutant[NSUnderlyingErrorKey] = *outError;
+            mutant[@"Likely Culprit"] = likelyCulprit;
+        }
+        NSDictionary<NSErrorUserInfoKey, id> *userInfo = [mutant copy];
+        NSError* overlyingError = [NSError errorWithDomain:BSManagedDocumentErrorDomain
+                                                      code:code
+                                                  userInfo:userInfo];
+        *outError = overlyingError;
+#if ! __has_feature(objc_arc)
+        [mutant release];
+        [userInfo release];
+#endif
+    }
+    
+    return YES;  // Silence stupid compiler warning
+}
+
+
 /*	Regular Save operations can write directly to the existing document since Core Data provides atomicity for us
  */
 - (BOOL)writeSafelyToURL:(NSURL *)absoluteURL
@@ -872,7 +1183,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 		
 		
         if (saveOperation == NSSaveOperation || saveOperation == NSAutosaveInPlaceOperation ||
-            (saveOperation == NSAutosaveElsewhereOperation && [absoluteURL isEqual:[self autosavedContentsFileURL]]))
+            (saveOperation == NSAutosaveElsewhereOperation && [absoluteURL isEqual:self.autosavedContentsFileURL]))
         {
             NSURL *backupURL = nil;
             
@@ -881,21 +1192,26 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 			if (NSAppKitVersionNumber >= 1187 &&
 				[self respondsToSelector:@selector(backupFileURL)] &&
 				(saveOperation == NSSaveOperation || saveOperation == NSAutosaveInPlaceOperation) &&
-				[[self class] preservesVersions])			// otherwise backupURL has a different meaning
+				self.class.preservesVersions)			// otherwise backupURL has a different meaning
 			{
-				backupURL = [self backupFileURL];
+				backupURL = self.backupFileURL;
 				if (backupURL)
 				{
 					if (![self writeBackupToURL:backupURL error:outError])
 					{
 						// If backup fails, seems it's our responsibility to clean up
 						NSError *error;
-						if (![[NSFileManager defaultManager] removeItemAtURL:backupURL error:&error])
+						if (![NSFileManager.defaultManager removeItemAtURL:backupURL error:&error])
 						{
 							NSLog(@"Unable to cleanup after failed backup: %@", error);
 						}
 						
-						return NO;
+                        [self spliceErrorWithCode:478201
+                             localizedDescription:@"Failed writing backup prior to writing"
+                                    likelyCulprit:backupURL
+                                     intoOutError:outError];
+
+                        return NO;
 					}
 				}
 			}
@@ -903,15 +1219,21 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 			
             // NSDocument attempts to write a copy of the document out at a temporary location.
             // Core Data cannot support this, so we override it to save directly.
+            // The following call is synchronous.  It does not return until
+            // saving ia all done
             result = [self writeToURL:absoluteURL
                                ofType:typeName
                      forSaveOperation:saveOperation
-                  originalContentsURL:[self fileURL]
+                  originalContentsURL:self.fileURL
                                 error:outError];
-            
             
             if (!result)
             {
+                [self spliceErrorWithCode:478202
+                     localizedDescription:@"Failed regular writing"
+                            likelyCulprit:absoluteURL
+                             intoOutError:outError];
+
                 // Clean up backup if one was made
                 // If the failure was actualy NSUserCancelledError thanks to
                 // autosaving being implicitly cancellable and a subclass deciding
@@ -920,7 +1242,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
                 if (backupURL)
                 {
                     NSError *error;
-                    if (![[NSFileManager defaultManager] removeItemAtURL:backupURL error:&error])
+                    if (![NSFileManager.defaultManager removeItemAtURL:backupURL error:&error])
                     {
                         NSLog(@"Unable to remove backup after failed write: %@", error);
                     }
@@ -933,7 +1255,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
                 {
                     if (modDate)    // some file systems don't support mod date
                     {
-                        [self setFileModificationDate:modDate];
+                        self.fileModificationDate = modDate;
                     }
                 }
             }
@@ -948,15 +1270,19 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
                                   ofType:typeName
                         forSaveOperation:saveOperation
                                    error:outError];
+        [self spliceErrorWithCode:478203
+             localizedDescription:@"Failed other writing"
+                    likelyCulprit:absoluteURL
+                     intoOutError:outError];
     }
     
     if (result) {
         NSNotification* note = [[NSNotification alloc] initWithName:BSManagedDocumentDidSaveNotification
                                                              object:self
                                                            userInfo:nil] ;
-        [[NSNotificationCenter defaultCenter] performSelectorOnMainThread:@selector(postNotification:)
-                                                               withObject:note
-                                                            waitUntilDone:NO] ;
+        [NSNotificationCenter.defaultCenter performSelectorOnMainThread:@selector(postNotification:)
+                                                             withObject:note
+                                                          waitUntilDone:NO] ;
 #if ! __has_feature(objc_arc)
         [note release];
 #endif
@@ -977,7 +1303,7 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
 	if (source)
     {
         /* The following also copies any additional content in the package. */
-        ok = [[NSFileManager defaultManager] copyItemAtURL:source toURL:backupURL error:outError];
+        ok = [NSFileManager.defaultManager copyItemAtURL:source toURL:backupURL error:outError];
     }
     else
     {
@@ -991,32 +1317,38 @@ NSString* BSManagedDocumentDidSaveNotification = @"BSManagedDocumentDidSaveNotif
             ofType:(NSString *)typeName
   forSaveOperation:(NSSaveOperationType)saveOp
 originalContentsURL:(NSURL *)originalContentsURL
-             error:(NSError **)error
+             error:(NSError **)outError
 {
-    // Grab additional content before proceeding. This should *only* happen when writing entirely on the main thread
-    // (e.g. Using one of the old synchronous -save… APIs. Note: duplicating a document calls -writeSafely… directly)
-    // To have gotten here on any thread but the main one is a programming error and unworkable, so we throw an exception
-    if (!_contents)
+    if (!self.writingBlock)
     {
-		_contents = [self contentsForURL:inURL ofType:typeName saveOperation:saveOp error:error];
-        if (!_contents) return NO;
+        /* We are being called for the first time in the current write
+         operation. */
+		[self makeWritingBlockForURL:inURL ofType:typeName saveOperation:saveOp error:outError];
+        [self spliceErrorWithCode:478204
+             localizedDescription:@"Failed making _writingBlock"
+                    likelyCulprit:inURL
+                     intoOutError:outError];
+        if (!self.writingBlock) return NO;
         
-        // Worried that _contents hasn't been retained? Never fear, we'll set it straight back to nil before exiting this method, I promise
+        /* The following apparently recursive call to ourself will only occur
+         once, because self.writingBlock is no longer nil and the branch in
+         which we are now in will not execute in the sequel. */
+        BOOL result = [self writeToURL:inURL ofType:typeName forSaveOperation:saveOp originalContentsURL:originalContentsURL error:outError];
+        [self spliceErrorWithCode:478205
+             localizedDescription:@"Failed writing for real"
+                     likelyCulprit:inURL
+                     intoOutError:outError];
         
-        
-        // And now we're ready to write for real
-        BOOL result = [self writeToURL:inURL ofType:typeName forSaveOperation:saveOp originalContentsURL:originalContentsURL error:error];
-        
-        
-        // Finish up. Don't worry, _additionalContent was never retained on this codepath, so doesn't need to be released
-        _contents = nil;
+        /* The self.writingBlock has executed and is no longer needed.
+         Furthermore, we must clear it to nil in preparation for any subsequent
+         write operation. */
+        self.writingBlock = nil;
         return result;
     }
     
-    
-    // We implement contents as a block which is called to perform the writing
-    BOOL (^contentsBlock)(NSURL *, NSSaveOperationType, NSURL *, NSError**) = _contents;
-    return contentsBlock(inURL, saveOp, originalContentsURL, error);
+    // The following invocation of _writingBlock does the actual work of saving
+    BOOL ok = self.writingBlock(inURL, saveOp, originalContentsURL, outError);
+    return ok;
 }
 
 - (void)setBundleBitForDirectoryAtURL:(NSURL *)url;
@@ -1055,12 +1387,12 @@ originalContentsURL:(NSURL *)originalContentsURL
     
     
     // On 10.6 saving is just one call, all on main thread. 10.7+ have to work on the context's private queue
-    NSManagedObjectContext *context = [self managedObjectContext];
+    NSManagedObjectContext *context = self.managedObjectContext;
     
     if ([context respondsToSelector:@selector(parentContext)])
     {
         [self unblockUserInteraction];
-        result = [self preflightURL:storeURL thenSaveContext:[context parentContext] error:error];
+        result = [self preflightURL:storeURL thenSaveContext:context.parentContext error:error];
     }
     else
     {
@@ -1079,7 +1411,7 @@ originalContentsURL:(NSURL *)originalContentsURL
     if (![storeURL getResourceValue:&writable forKey:NSURLIsWritableKey error:error])
         return NO;
 #else
-    writable = @([[NSFileManager defaultManager] isWritableFileAtPath:[storeURL path]]);
+    writable = @([NSFileManager.defaultManager isWritableFileAtPath:storeURL.path]);
 #endif
     
     if (writable.boolValue)
@@ -1156,14 +1488,14 @@ originalContentsURL:(NSURL *)originalContentsURL
 /*  Enable autosave-in-place and versions browser on 10.7+
  */
 + (BOOL)autosavesInPlace { return [NSDocument respondsToSelector:_cmd]; }
-+ (BOOL)preservesVersions { return [self autosavesInPlace]; }
++ (BOOL)preservesVersions { return self.autosavesInPlace; }
 
 - (void)setAutosavedContentsFileURL:(NSURL *)absoluteURL;
 {
     [super setAutosavedContentsFileURL:absoluteURL];
     
     // Point the store towards the most recent known URL
-    absoluteURL = [self mostRecentlySavedFileURL];
+    absoluteURL = self.mostRecentlySavedFileURL;
     if (absoluteURL) [self setURLForPersistentStoreUsingFileURL:absoluteURL];
 }
 
@@ -1171,8 +1503,8 @@ originalContentsURL:(NSURL *)originalContentsURL
 {
     // Before the user chooses where to place a new document, it has an autosaved URL only
     // On 10.6-, autosaves save newer versions of the document *separate* from the original doc
-    NSURL *result = [self autosavedContentsFileURL];
-    if (!result) result = [self fileURL];
+    NSURL *result = self.autosavedContentsFileURL;
+    if (!result) result = self.fileURL;
     return result;
 }
 
@@ -1195,12 +1527,18 @@ originalContentsURL:(NSURL *)originalContentsURL
         self.autosavedContentsTempDirectoryURL = nil;
         
         NSError *error;
-        if (![[NSFileManager defaultManager] removeItemAtURL:autosaveTempDir error:&error])
+        if (![NSFileManager.defaultManager removeItemAtURL:autosaveTempDir error:&error])
         {
             NSLog(@"Unable to remove temporary directory: %@", error);
         }
     }
 }
+
+- (IBAction)saveDocument:(id)sender {
+    self.isSaving = YES;
+    [super saveDocument:sender];
+}
+
 
 #pragma mark Reverting Documents
 
@@ -1209,7 +1547,7 @@ originalContentsURL:(NSURL *)originalContentsURL
     // Tear down old windows. Wrap in an autorelease pool to get us much torn down before the reversion as we can
     @autoreleasepool
     {
-    NSArray *controllers = [[self windowControllers] copy]; // we're sometimes handed underlying mutable array. #156271
+    NSArray<NSWindowController *> *controllers = [self.windowControllers copy]; // we're sometimes handed underlying mutable array. #156271
     for (NSWindowController *aController in controllers)
     {
         [self removeWindowController:aController];
@@ -1290,6 +1628,15 @@ originalContentsURL:(NSURL *)originalContentsURL
 
 - (NSDocument *)duplicateAndReturnError:(NSError **)outError;
 {
+    if (outError) {
+        *outError = nil;
+    }
+    /* The above is needed to prevent a up-stack crash in
+     -spliceErrorWithCode:localizedDescription:likelyCulprit:intoOutError:
+     because, apparently macOS passes *outError = garbage (but, oddly, only
+     with ARC in macOS 10.15.)  Anyhow, initializing variables is always a
+     good practice!  */
+    
     // If the doc is brand new, have to force the autosave to write to disk
     if (!self.fileURL && !self.autosavedContentsFileURL && !self.hasUnautosavedChanges)
     {
@@ -1306,13 +1653,13 @@ originalContentsURL:(NSURL *)originalContentsURL
     
     // Let super handle the overall duplication so it gets the window-handling
     // right. But use custom writing logic that actually copies the existing doc
-    BOOL (^contentsBlock)(NSURL*, NSSaveOperationType, NSURL*, NSError**) = ^(NSURL *url, NSSaveOperationType saveOperation, NSURL *originalContentsURL, NSError **error) {
+    BOOL (^writingBlock)(NSURL*, NSSaveOperationType, NSURL*, NSError**) = ^(NSURL *url, NSSaveOperationType saveOperation, NSURL *originalContentsURL, NSError **error) {
         return [self writeBackupToURL:url error:error];
     };
     
-    _contents = contentsBlock;
+    self.writingBlock = writingBlock;
     NSDocument *result = [super duplicateAndReturnError:outError];
-    _contents = nil;
+    self.writingBlock = nil;
     
     return result;
 }
@@ -1320,13 +1667,15 @@ originalContentsURL:(NSURL *)originalContentsURL
 /*  Approximates a synchronous version of -autosaveDocumentWithDelegate:didAutosaveSelector:contextInfo:    */
 - (BOOL)fakeSynchronousAutosaveAndReturnError:(NSError **)outError;
 {
+    NSError* __block error = nil;
+    
     // Kick off an autosave
     __block BOOL result = YES;
     [self autosaveWithImplicitCancellability:NO completionHandler:^(NSError *errorOrNil) {
         if (errorOrNil)
         {
             result = NO;
-            *outError = [errorOrNil copy];  // in case there's an autorelease pool
+            error = [errorOrNil copy];  // in case there's an autorelease pool
         }
     }];
     
@@ -1334,13 +1683,21 @@ originalContentsURL:(NSURL *)originalContentsURL
     [self performSynchronousFileAccessUsingBlock:^{ }];
     
 #if ! __has_feature(objc_arc)
-    if (!result) [*outError autorelease];   // match the -copy above
+    [error autorelease];   // match the -copy above
 #endif
     
+    if (error && outError) {
+        *outError = error ;
+    }
+
     return result;
 }
 
-// See note JK20170624 at end of file
+- (IBAction)saveDocumentAs:(id)sender {
+    self.isSaving = YES;
+    [super saveDocumentAs:sender];
+}
+
 
 #pragma mark Error Presentation
 
@@ -1352,19 +1709,19 @@ originalContentsURL:(NSURL *)originalContentsURL
 	NSError *result = nil;
     
     // customizations for NSCocoaErrorDomain
-	if ( [[inError domain] isEqualToString:NSCocoaErrorDomain] )
+	if ( [inError.domain isEqualToString:NSCocoaErrorDomain] )
 	{
-		NSInteger errorCode = [inError code];
+		NSInteger errorCode = inError.code;
 		
 		// is this a Core Data validation error?
 		if ( (NSValidationErrorMinimum <= errorCode) && (errorCode <= NSValidationErrorMaximum) )
 		{
 			// If there are multiple validation errors, inError will be a NSValidationMultipleErrorsError
 			// and all the validation errors will be in an array in the userInfo dictionary for key NSDetailedErrorsKey
-			NSArray *detailedErrors = [[inError userInfo] objectForKey:NSDetailedErrorsKey];
-			if ( detailedErrors != nil )
+			NSArray<NSError *> *detailedErrors = inError.userInfo[NSDetailedErrorsKey];
+			if (detailedErrors)
 			{
-				NSUInteger numErrors = [detailedErrors count];
+				NSUInteger numErrors = detailedErrors.count;
 				NSMutableString *errorString = [NSMutableString stringWithFormat:@"%lu validation errors have occurred.", (unsigned long)numErrors];
 				NSMutableString *secondary = [NSMutableString string];
 				if ( numErrors > 3 )
@@ -1375,14 +1732,14 @@ originalContentsURL:(NSURL *)originalContentsURL
 				NSUInteger i;
 				for ( i = 0; i < ((numErrors > 3) ? 3 : numErrors); i++ )
 				{
-					[secondary appendFormat:@"%@\n", [[detailedErrors objectAtIndex:i] localizedDescription]];
+					[secondary appendFormat:@"%@\n", detailedErrors[i].localizedDescription];
 				}
 				
-				NSMutableDictionary *userInfo = [NSMutableDictionary dictionaryWithDictionary:[inError userInfo]];
-				[userInfo setObject:errorString forKey:NSLocalizedDescriptionKey];
-				[userInfo setObject:secondary forKey:NSLocalizedRecoverySuggestionErrorKey];
+				NSMutableDictionary<NSErrorUserInfoKey, id> *userInfo = [NSMutableDictionary dictionaryWithDictionary:inError.userInfo];
+				userInfo[NSLocalizedDescriptionKey] = errorString;
+				userInfo[NSLocalizedRecoverySuggestionErrorKey]  = secondary;
                 
-				result = [NSError errorWithDomain:[inError domain] code:[inError code] userInfo:userInfo];
+				result = [NSError errorWithDomain:inError.domain code:inError.code userInfo:userInfo];
 			}
 		}
 	}

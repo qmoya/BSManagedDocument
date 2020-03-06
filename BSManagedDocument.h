@@ -21,7 +21,7 @@
 //
 //  *   Saves to a file package
 //
-//  *   On 10.7+, asynchronous saving is supported. We set up a parent/child pair of contexts; the parent saves on its own thread
+//  *   On 10.7+, asynchronous saving is supported. We insert a parent context between the persistent store coordinator and the     "main" managed object context (the one with main queue concurrency type that is returned by -managedObjectContext).  The parent context is of private queue concurrency type and therefore saves on its own thread.  (Note that, even as late as macOS 10.15 in September 2019, NSPersistendDocument still does *not* support asynchronous saving.  (See Apple documentation > AppKit > NSPersistentDocument > Overview > Important.
 //
 //  *   Full support for concurrent document opening too
 //
@@ -53,6 +53,9 @@
 #import <Cocoa/Cocoa.h>
 
 extern NSString* BSManagedDocumentDidSaveNotification ;
+extern NSString* BSManagedDocumentErrorDomain ;
+
+typedef BOOL (^WritingBlockType) (NSURL*, NSSaveOperationType, NSURL*, NSError**);
 
 __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
 {
@@ -62,7 +65,7 @@ __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
 	NSPersistentStore       *_store;
     NSPersistentStoreCoordinator *_coordinator;
     
-    id  _contents;
+    WritingBlockType _writingBlock;
     
     NSURL   *_autosavedContentsTempDirectoryURL;
     
@@ -77,7 +80,7 @@ __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
  store will be saved directly inside the document package with no intermediate
  folder.
  */
-+ (NSString *)storeContentName;
+@property (nonatomic, class, readonly) NSString *storeContentName;
 
 /**
  @return The name for the persistent store file inside the document’s file package.
@@ -85,7 +88,7 @@ __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
  The default name is `persistentStore` to match `UIManagedDocument`. The store
  is nested inside the document within the `+storeContentName` folder.
  */
-+ (NSString *)persistentStoreName;
+@property (nonatomic, class, readonly) NSString *persistentStoreName;
 
 /**
  @brief    Given the path to a BSManagedDocument on disk, returns the path to
@@ -121,7 +124,7 @@ __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
  But a comment by Mike Abdullah in pre-2019 commits of the .m file implies
  that Karelia did this in their Sandvox app.
  */
-+ (Class)managedObjectContextClass;
+@property (nonatomic, class, readonly) Class managedObjectContextClass;
 
 /*!
  @brief    Returns the desired class of instances' undo manager
@@ -130,7 +133,7 @@ __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
  to specify that the receiver should not support undo.  The default
  implemenation returns NSUndoManager.
  */
-+ (Class)undoManagerClass;
+@property (nonatomic, class, readonly) Class undoManagerClass;
 
 /**
  The receiver's managed object context
@@ -138,9 +141,9 @@ __attribute__((visibility("default"))) @interface BSManagedDocument : NSDocument
  Persistent documents always have a managed object context and a persistent
  store coordinator through that context.
  
- A default context is created on-demand. You can call `-setManagedObjectContext:`
- to substitute your own context instead. This will automatically supply a
- persistence stack for the context and uses its undo manager.
+ A default context is created on-demand. You can call
+ `-setManagedObjectContext:` to substitute your own context instead. This will
+ automatically supply a persistence stack for the context.
  */
 @property (nonatomic, strong) NSManagedObjectContext *managedObjectContext;
 
