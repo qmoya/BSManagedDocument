@@ -693,12 +693,12 @@ we use a weak self (`welf`) when compiling with ARC.  We should make these two
                                         forSaveOperation:saveOperation
                                      originalContentsURL:originalContentsURL
                                                    error:error];
-            [welf spliceErrorWithCode:478206
-                 localizedDescription:@"Failed creating package directories"
-                        likelyCulprit:url
-                         intoOutError:error];
             if (!result)
             {
+                [welf spliceErrorWithCode:478206
+                     localizedDescription:@"Failed creating package directories"
+                            likelyCulprit:url
+                             intoOutError:error];
                 [welf signalDoneAndMaybeClose];
                 return NO;
             }
@@ -706,12 +706,12 @@ we use a weak self (`welf`) when compiling with ARC.  We should make these two
             result = [welf configurePersistentStoreCoordinatorForURL:storeURL
                                                               ofType:typeName
                                                                error:error];
-            [welf spliceErrorWithCode:478207
-                 localizedDescription:@"Failed to configure PSC"
-                        likelyCulprit:storeURL
-                         intoOutError:error];
             if (!result)
             {
+                [welf spliceErrorWithCode:478207
+                     localizedDescription:@"Failed to configure PSC"
+                            likelyCulprit:storeURL
+                             intoOutError:error];
                 [welf signalDoneAndMaybeClose];
                 return NO;
             }
@@ -1270,10 +1270,12 @@ we use a weak self (`welf`) when compiling with ARC.  We should make these two
                                   ofType:typeName
                         forSaveOperation:saveOperation
                                    error:outError];
-        [self spliceErrorWithCode:478203
-             localizedDescription:@"Failed other writing"
-                    likelyCulprit:absoluteURL
-                     intoOutError:outError];
+        if (!result) {
+            [self spliceErrorWithCode:478203
+                 localizedDescription:@"Failed other writing"
+                        likelyCulprit:absoluteURL
+                        intoOutError:outError];
+        }
     }
     
     if (result) {
@@ -1323,21 +1325,24 @@ originalContentsURL:(NSURL *)originalContentsURL
     {
         /* We are being called for the first time in the current write
          operation. */
-		[self makeWritingBlockForURL:inURL ofType:typeName saveOperation:saveOp error:outError];
-        [self spliceErrorWithCode:478204
-             localizedDescription:@"Failed making _writingBlock"
-                    likelyCulprit:inURL
-                     intoOutError:outError];
-        if (!self.writingBlock) return NO;
+        if (![self makeWritingBlockForURL:inURL ofType:typeName saveOperation:saveOp error:outError]) {
+            [self spliceErrorWithCode:478204
+                 localizedDescription:@"Failed making _writingBlock"
+                        likelyCulprit:inURL
+                         intoOutError:outError];
+            return NO;
+        }
         
         /* The following apparently recursive call to ourself will only occur
          once, because self.writingBlock is no longer nil and the branch in
          which we are now in will not execute in the sequel. */
         BOOL result = [self writeToURL:inURL ofType:typeName forSaveOperation:saveOp originalContentsURL:originalContentsURL error:outError];
-        [self spliceErrorWithCode:478205
-             localizedDescription:@"Failed writing for real"
-                     likelyCulprit:inURL
-                     intoOutError:outError];
+        if (!result) {
+            [self spliceErrorWithCode:478205
+                 localizedDescription:@"Failed writing for real"
+                         likelyCulprit:inURL
+                         intoOutError:outError];
+        }
         
         /* The self.writingBlock has executed and is no longer needed.
          Furthermore, we must clear it to nil in preparation for any subsequent
