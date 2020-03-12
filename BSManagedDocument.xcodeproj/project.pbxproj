@@ -7,15 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A5BF4E13241AA2930060A330 /* BSManagedDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = A5BF4E12241AA2930060A330 /* BSManagedDocument.m */; };
-		A5BF4E19241AB0310060A330 /* BSManagedDocument.h in Headers */ = {isa = PBXBuildFile; fileRef = A5BF4E0A241AA24F0060A330 /* BSManagedDocument.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		A5BF4E1C241AB15E0060A330 /* BSManagedDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = A5BF4E1A241AB15E0060A330 /* BSManagedDocument.m */; };
+		A5BF4E1E241AB1670060A330 /* BSManagedDocument.h in Headers */ = {isa = PBXBuildFile; fileRef = A5BF4E1B241AB15E0060A330 /* BSManagedDocument.h */; settings = {ATTRIBUTES = (Public, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		A5BF4E07241AA24F0060A330 /* BSManagedDocument.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = BSManagedDocument.framework; sourceTree = BUILT_PRODUCTS_DIR; };
-		A5BF4E0A241AA24F0060A330 /* BSManagedDocument.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BSManagedDocument.h; sourceTree = "<group>"; };
-		A5BF4E0B241AA24F0060A330 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A5BF4E12241AA2930060A330 /* BSManagedDocument.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = BSManagedDocument.m; sourceTree = SOURCE_ROOT; };
+		A5BF4E1A241AB15E0060A330 /* BSManagedDocument.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = BSManagedDocument.m; sourceTree = "<group>"; };
+		A5BF4E1B241AB15E0060A330 /* BSManagedDocument.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = BSManagedDocument.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -32,7 +31,8 @@
 		A5BF4DFD241AA24F0060A330 = {
 			isa = PBXGroup;
 			children = (
-				A5BF4E09241AA24F0060A330 /* BSManagedDocument */,
+				A5BF4E1B241AB15E0060A330 /* BSManagedDocument.h */,
+				A5BF4E1A241AB15E0060A330 /* BSManagedDocument.m */,
 				A5BF4E08241AA24F0060A330 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -45,16 +45,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		A5BF4E09241AA24F0060A330 /* BSManagedDocument */ = {
-			isa = PBXGroup;
-			children = (
-				A5BF4E0A241AA24F0060A330 /* BSManagedDocument.h */,
-				A5BF4E12241AA2930060A330 /* BSManagedDocument.m */,
-				A5BF4E0B241AA24F0060A330 /* Info.plist */,
-			);
-			path = BSManagedDocument;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXHeadersBuildPhase section */
@@ -62,7 +52,7 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A5BF4E19241AB0310060A330 /* BSManagedDocument.h in Headers */,
+				A5BF4E1E241AB1670060A330 /* BSManagedDocument.h in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -134,7 +124,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A5BF4E13241AA2930060A330 /* BSManagedDocument.m in Sources */,
+				A5BF4E1C241AB15E0060A330 /* BSManagedDocument.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
